@@ -1,0 +1,1843 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<title>ΒιβλιοRoll — Reader</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23e30613'/%3E%3Cpath d='M6 9c3.5-1.6 6.5-1.6 10 0v15c-3.5-1.6-6.5-1.6-10 0z' fill='%23fff'/%3E%3Cpath d='M26 9c-3.5-1.6-6.5-1.6-10 0v15c3.5-1.6 6.5-1.6 10 0z' fill='%23ffd6d9'/%3E%3Crect x='20' y='4' width='3.4' height='11' fill='%23111' /%3E%3C/svg%3E" />
+
+<!-- ===== PWA ===== -->
+<link rel="manifest" href="manifest.webmanifest" />
+<meta name="theme-color" content="#0d0f12" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="ΒιβλιοRoll" />
+<link rel="apple-touch-icon" href="icons/icon-180.png" />
+
+<!-- Τοπικές βιβλιοθήκες (λειτουργεί 100% offline) -->
+<!-- PDF.js (Mozilla) -->
+<script src="vendor/pdf.min.js"></script>
+<!-- StPageFlip — ρεαλιστικό γύρισμα σελίδας -->
+<script src="vendor/page-flip.browser.js"></script>
+<!-- Mammoth — Word (.docx) -> HTML -->
+<script src="vendor/mammoth.browser.min.js"></script>
+<!-- SheetJS — Excel (.xlsx/.xls) -->
+<script src="vendor/xlsx.full.min.js"></script>
+<!-- JSZip — για EPUB (unzip) -->
+<script src="vendor/jszip.min.js"></script>
+<!-- html2canvas — για screenshot -->
+<script src="vendor/html2canvas.min.js"></script>
+
+<style>
+  :root{
+    --bg:#0d0f12;
+    --bg2:#15181d;
+    --panel:#1b1f26;
+    --panel2:#232833;
+    --line:#2c323d;
+    --txt:#f4f6f8;
+    --muted:#9aa4b2;
+    --accent:#e30613;      /* κόκκινο */
+    --accent-hi:#ff2233;
+    --shadow:rgba(0,0,0,.55);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    font-family:"Segoe UI",Roboto,system-ui,Arial,sans-serif;
+    background:
+      radial-gradient(1200px 600px at 50% -10%, #202634 0%, transparent 60%),
+      var(--bg);
+    color:var(--txt);
+    overflow:hidden;
+    -webkit-user-select:none;user-select:none;
+    display:flex;flex-direction:column;height:100vh;height:100dvh;
+  }
+  #main{position:relative;flex:1;min-height:0}
+
+  /* ---------- Toolbar ---------- */
+  #toolbar{
+    flex:none;min-height:56px;display:flex;align-items:center;gap:8px;
+    padding:8px 12px;
+    padding-top:max(8px,env(safe-area-inset-top));
+    padding-left:max(12px,env(safe-area-inset-left));
+    padding-right:max(12px,env(safe-area-inset-right));
+    background:linear-gradient(180deg,var(--panel),var(--bg2));
+    border-bottom:1px solid var(--line);box-shadow:0 2px 12px var(--shadow);
+    position:relative;z-index:30;flex-wrap:wrap;
+  }
+  .brand{display:flex;align-items:center;gap:9px;margin-right:6px;white-space:nowrap}
+  .brand .logo{width:34px;height:34px;flex:none;filter:drop-shadow(0 2px 6px #e3061366)}
+  .brand .bwrap{display:flex;flex-direction:column;justify-content:center;line-height:1.05}
+  .brand .wm{font-weight:800;letter-spacing:.2px;font-size:19px;color:var(--txt)}
+  .brand .wm b{color:var(--accent);font-weight:800}
+  .brand .credit{font-size:10px;color:var(--muted);letter-spacing:.2px;white-space:nowrap}
+  .brand small{color:var(--muted);font-weight:600;font-size:11px}
+  .spacer{flex:1}
+  .grp{display:flex;align-items:center;gap:6px}
+
+  button.btn,label.btn{
+    appearance:none;border:1px solid var(--line);background:var(--panel2);color:var(--txt);
+    height:38px;min-width:38px;padding:0 12px;border-radius:9px;cursor:pointer;
+    font-size:14px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:7px;
+    transition:.15s;white-space:nowrap;
+  }
+  button.btn:hover,label.btn:hover{background:#2b323f;border-color:#3a4252}
+  button.btn:active{transform:translateY(1px)}
+  button.btn:disabled{opacity:.4;cursor:not-allowed}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary:hover{background:var(--accent-hi);border-color:var(--accent-hi)}
+  .btn.icon{padding:0;font-size:18px;line-height:1}
+
+  #pageInfo{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:13px;white-space:nowrap}
+  #pageInput{width:52px;height:34px;background:#0e1116;border:1px solid var(--line);color:var(--txt);
+    border-radius:7px;text-align:center;font-size:14px}
+  #fileName{max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:13px}
+  #zoomLbl{min-width:46px;text-align:center;color:var(--muted);font-size:13px}
+
+  /* ---------- Stage ---------- */
+  #stage{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    overflow:auto;padding:18px;
+  }
+  #zoomWrap{transform-origin:center center;transition:transform .12s ease-out}
+  #book{ user-select:none;width:100%;height:100%; }
+  /* pan overlay: active only when zoomed in, so 1x still flips pages */
+  #panLayer{position:absolute;inset:0;z-index:21;display:none;touch-action:none;cursor:grab}
+  #panLayer.on{display:block}
+  #panLayer.grabbing{cursor:grabbing}
+  .page{overflow:hidden}
+  /* pdf pages (lazy rendered canvas) */
+  .pdfpage{background:#fff;overflow:hidden}
+  .pdfpage canvas{width:100%;height:100%;display:block;pointer-events:none}
+  .pdfpage .ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    color:#c9ccd2;font-size:34px;font-weight:800;
+    background:linear-gradient(110deg,#f2f3f5 30%,#e7e9ee 50%,#f2f3f5 70%);
+    background-size:200% 100%;animation:sh 1.2s linear infinite}
+  @keyframes sh{to{background-position:-200% 0}}
+  /* html (word/excel) pages */
+  .docpage{
+    background:#fbfaf7;color:#1b1b1b;overflow:hidden;
+    padding:34px 38px;font-size:14.5px;line-height:1.55;
+    box-shadow:inset 0 0 0 1px rgba(0,0,0,.05);
+  }
+  .docpage.cover{
+    background:linear-gradient(135deg,#2a0407,#7a0b12 60%,#e30613);
+    color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:40px;
+  }
+  .docpage.cover .ct{font-size:26px;font-weight:800;line-height:1.25;margin-bottom:14px;word-break:break-word}
+  .docpage.cover .cs{font-size:13px;color:#ffd5d8;letter-spacing:1px;text-transform:uppercase}
+  .docpage.cover .cl{margin-top:26px;font-size:12px;color:#ffb3b8}
+  .docpage h1,.docpage h2,.docpage h3{color:#111;line-height:1.2;margin:.4em 0 .35em}
+  .docpage h1{font-size:1.5em}.docpage h2{font-size:1.28em}.docpage h3{font-size:1.12em}
+  .docpage p{margin:0 0 .6em}
+  .docpage img{max-width:100%}
+  .docpage table{border-collapse:collapse;width:100%;font-size:12px;table-layout:fixed}
+  .docpage th,.docpage td{border:1px solid #c9c4b8;padding:4px 6px;text-align:left;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:top}
+  .docpage thead th{background:#efe9dc;font-weight:700}
+  .docpage .sheetTitle{font-size:1.15em;font-weight:800;color:var(--accent);margin:.1em 0 .5em;border-bottom:2px solid var(--accent);padding-bottom:4px}
+  .pagenum{position:absolute;bottom:10px;left:0;right:0;text-align:center;font-size:10px;color:#a99;pointer-events:none}
+
+  .stpageflip-wrapper,.stf__parent{ margin:0 auto; }
+
+  /* ---------- Empty / Drop ---------- */
+  #empty{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;
+    text-align:center;padding:24px;z-index:10;
+  }
+  #drop{
+    border:2px dashed #3a4252;border-radius:18px;padding:48px 46px;max-width:560px;
+    background:rgba(255,255,255,.02);transition:.18s;
+  }
+  #drop.hot{border-color:var(--accent);background:rgba(227,6,19,.08)}
+  #drop .big{font-size:48px;margin-bottom:8px}
+  #drop h2{margin:.2em 0;font-size:22px}
+  #drop p{color:var(--muted);margin:.3em 0 1.2em;font-size:14px}
+  .types{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:16px}
+  .chip{background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:12px;color:var(--muted)}
+  .chip b{color:var(--txt)}
+  .copyright{margin-top:20px;font-size:12px;color:var(--muted);letter-spacing:.4px}
+  .copyright::before{content:"";display:block;width:40px;height:1px;background:var(--line);margin:0 auto 12px}
+
+  /* ---------- Loading ---------- */
+  #loading{position:absolute;inset:0;background:rgba(6,7,9,.86);z-index:50;display:none;
+    align-items:center;justify-content:center;flex-direction:column;gap:18px;backdrop-filter:blur(3px)}
+  #loading.on{display:flex}
+  .spinner{width:54px;height:54px;border-radius:50%;border:5px solid #2a2f3a;border-top-color:var(--accent);animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #loadTxt{color:var(--txt);font-weight:600}
+  .bar{width:280px;height:8px;background:#222833;border-radius:99px;overflow:hidden}
+  .bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent-hi));transition:width .15s}
+
+  /* corner hint */
+  #hint{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);z-index:20;
+    background:rgba(20,23,28,.85);border:1px solid var(--line);color:var(--muted);
+    padding:7px 14px;border-radius:99px;font-size:12px;display:none;gap:14px;align-items:center}
+  #hint.on{display:flex}
+  #hint b{color:var(--txt)}
+  #toast{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:60;
+    background:#2a0407;border:1px solid var(--accent);color:#fff;padding:10px 16px;border-radius:10px;
+    font-size:13px;display:none;max-width:80%}
+  #toast.on{display:block}
+
+  /* ---------- Annotations ---------- */
+  #annoBar{
+    display:none;align-items:center;gap:8px;flex-wrap:wrap;flex:none;
+    padding:7px 12px;background:var(--panel2);border-bottom:1px solid var(--line);
+    position:relative;z-index:29;
+  }
+  #annoBar.on{display:flex}
+  #annoBar .atitle{font-weight:700;color:var(--accent);font-size:13px;margin-right:2px}
+  .atool.active{background:var(--accent);border-color:var(--accent);color:#fff}
+  .swatches{display:flex;gap:5px}
+  .swatch{width:22px;height:22px;border-radius:50%;border:2px solid #0006;cursor:pointer}
+  .swatch.active{outline:2px solid #fff;outline-offset:1px}
+  #penSize{width:90px;accent-color:var(--accent)}
+  #annoLayer{position:absolute;inset:0;z-index:22;pointer-events:none;overflow:hidden}
+  #annoLayer.on{pointer-events:auto;cursor:crosshair}
+  #annoCanvas{position:absolute;inset:0;width:100%;height:100%}
+  .annoText{position:absolute;min-width:20px;color:#e30613;font-weight:700;font-size:20px;
+    outline:1px dashed #e3061366;padding:2px 4px;background:transparent;cursor:move;white-space:pre;
+    font-family:inherit}
+  .annoText:focus{outline:1px solid var(--accent)}
+  body.annotating{ }
+
+  /* ---------- Music player ---------- */
+  #musicPanel{
+    position:absolute;right:0;bottom:0;top:0;width:330px;max-width:88vw;z-index:40;
+    background:linear-gradient(180deg,var(--panel),var(--bg2));border-left:1px solid var(--line);
+    box-shadow:-8px 0 26px var(--shadow);transform:translateX(102%);transition:transform .25s ease;
+    display:flex;flex-direction:column;padding:14px;gap:12px;overflow-y:auto;
+  }
+  #musicPanel.on{transform:translateX(0)}
+  #musicPanel h3{margin:2px 0 4px;font-size:16px;display:flex;align-items:center;gap:8px}
+  #musicPanel h3 .x{margin-left:auto;cursor:pointer;color:var(--muted);font-size:20px;line-height:1}
+  .msec{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:11px}
+  .msec .lbl{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;font-weight:700}
+  .mrow{display:flex;gap:7px;align-items:center}
+  .minput{flex:1;height:36px;background:#0e1116;border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:0 10px;font-size:13px;min-width:0}
+  .presets{margin-top:9px}
+  .pcat{font-size:11px;color:var(--accent);font-weight:800;margin:9px 0 5px;letter-spacing:.4px}
+  .prow{display:flex;flex-wrap:wrap;gap:6px}
+  .preset{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:99px;padding:5px 10px;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  .preset:hover{border-color:var(--accent);color:#fff}
+  .preset .prm{display:none;color:#fff;background:var(--accent);border-radius:50%;width:15px;height:15px;font-size:10px;line-height:15px;text-align:center;font-weight:800}
+  #presets.manage .preset{border-color:var(--accent)}
+  #presets.manage .preset .prm{display:inline-block}
+  #manageBtn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  #playlist{list-style:none;margin:8px 0 0;padding:0;max-height:190px;overflow:auto}
+  #playlist li{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:8px;font-size:13px;cursor:pointer;color:var(--muted)}
+  #playlist li:hover{background:var(--panel2)}
+  #playlist li.active{background:rgba(227,6,19,.16);color:#fff}
+  #playlist li .i{font-size:12px}
+  .nowplaying{font-size:13px;color:var(--txt);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .nowsub{font-size:11px;color:var(--muted)}
+  .mctrls{display:flex;align-items:center;gap:10px;justify-content:center;margin-top:6px}
+  .mbtn{width:42px;height:42px;border-radius:50%;border:1px solid var(--line);background:var(--panel2);color:var(--txt);
+    font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .mbtn.play{width:52px;height:52px;background:var(--accent);border-color:var(--accent);color:#fff;font-size:20px}
+  .mbtn:active{transform:scale(.94)}
+  .vol{display:flex;align-items:center;gap:8px;margin-top:10px}
+  .vol input[type=range]{flex:1;accent-color:var(--accent)}
+  .cst{display:inline-flex;align-items:center;gap:5px;background:var(--panel);border:1px solid var(--line);border-radius:99px;padding:4px 6px 4px 11px;font-size:12px}
+  .cst .rm{cursor:pointer;color:var(--muted);font-weight:800;padding:0 4px;border-radius:50%}
+  .cst .rm:hover{color:#fff;background:var(--accent)}
+  .cst .nm{cursor:pointer}
+
+  /* ---------- Page themes (day/sepia/night) ---------- */
+  #book.sepia .docpage{background:#f3e7cf !important;color:#4a3b23}
+  #book.sepia .docpage h1,#book.sepia .docpage h2,#book.sepia .docpage h3{color:#3a2c14}
+  #book.sepia .pdfpage canvas{filter:sepia(.45) contrast(.96) brightness(.98)}
+  #book.night .docpage{background:#15130f00;background-color:#171310 !important;color:#e7ddc9}
+  #book.night .docpage h1,#book.night .docpage h2,#book.night .docpage h3{color:#ffd9a8}
+  #book.night .docpage .sheetTitle{color:#ff6b74}
+  #book.night .docpage th{background:#2a2118;color:#ffe}
+  #book.night .docpage td,#book.night .docpage th{border-color:#4a3d2c}
+  #book.night .pdfpage canvas{filter:invert(.9) hue-rotate(180deg) brightness(.95) contrast(1.02)}
+  #book.night .pdfpage{background:#111}
+
+  /* ---------- Bookmark ribbon ---------- */
+  #ribbon{position:absolute;top:0;right:26px;z-index:24;cursor:pointer;display:none;
+    filter:drop-shadow(0 3px 4px #0007);transition:transform .15s}
+  #ribbon:hover{transform:translateY(3px)}
+  #ribbon.on{display:block}
+  #ribbon #ribbonList{display:block;width:30px;height:44px;background:linear-gradient(180deg,#e30613,#a0050d);
+    color:#fff;text-align:center;line-height:38px;font-size:15px;
+    clip-path:polygon(0 0,100% 0,100% 100%,50% 82%,0 100%)}
+  /* small corner ribbons on bookmarked pages list */
+  #bmkPop,#libPanel{position:absolute;background:linear-gradient(180deg,var(--panel),var(--bg2));
+    border:1px solid var(--line);box-shadow:0 14px 40px var(--shadow);z-index:45;color:var(--txt)}
+  #bmkPop{top:8px;right:8px;width:280px;max-width:86vw;border-radius:12px;padding:12px;display:none}
+  #bmkPop.on{display:block}
+  #bmkPop h4{margin:0 0 8px;font-size:14px;display:flex;align-items:center}
+  #bmkPop h4 .x,.libhead .x{margin-left:auto;cursor:pointer;color:var(--muted);font-size:20px;line-height:1}
+  .bmkItem{display:flex;align-items:center;gap:8px;padding:8px;border-radius:8px;cursor:pointer;font-size:13px;color:var(--muted)}
+  .bmkItem:hover{background:var(--panel2);color:#fff}
+  .bmkItem .pg{background:var(--accent);color:#fff;border-radius:6px;padding:2px 7px;font-weight:700;font-size:12px}
+  .bmkItem .rm{margin-left:auto;color:var(--muted);cursor:pointer;padding:2px 6px;border-radius:6px}
+  .bmkItem .rm:hover{background:var(--accent);color:#fff}
+  .empty2{color:var(--muted);font-size:13px;text-align:center;padding:20px 10px}
+
+  /* ---------- Library ---------- */
+  #libPanel{inset:0;border:none;border-radius:0;display:none;flex-direction:column;padding:16px}
+  #libPanel.on{display:flex}
+  .libhead{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .libhead h3{margin:0;font-size:20px}
+  #libGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px;overflow:auto;align-content:start;padding-bottom:10px}
+  .lcard{background:var(--panel2);border:1px solid var(--line);border-radius:12px;overflow:hidden;cursor:pointer;
+    display:flex;flex-direction:column;transition:.15s;position:relative}
+  .lcard:hover{border-color:var(--accent);transform:translateY(-2px)}
+  .lcard .cov{aspect-ratio:3/4;background:#0e1116 center/cover no-repeat;display:flex;align-items:center;justify-content:center;font-size:34px;color:#3a4252}
+  .lcard .meta{padding:8px 9px}
+  .lcard .nm{font-size:12.5px;font-weight:600;line-height:1.25;max-height:2.6em;overflow:hidden}
+  .lcard .sub{font-size:11px;color:var(--muted);margin-top:3px;display:flex;align-items:center;gap:6px}
+  .lcard .prog{height:4px;background:#000a;border-radius:9px;overflow:hidden;margin-top:6px}
+  .lcard .prog>i{display:block;height:100%;background:var(--accent)}
+  .lcard .del{position:absolute;top:6px;right:6px;width:26px;height:26px;border-radius:50%;border:none;
+    background:#000a;color:#fff;cursor:pointer;font-size:13px;display:none}
+  .lcard:hover .del{display:block}
+  .lcard .badge{position:absolute;top:6px;left:6px;background:#ffd400;color:#111;border-radius:99px;font-size:10px;font-weight:800;padding:2px 7px}
+
+  /* ---------- TTS bar ---------- */
+  #ttsBar{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:26;display:none;
+    align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;max-width:94vw;
+    background:rgba(20,23,28,.95);border:1px solid var(--line);border-radius:12px;padding:8px 12px;box-shadow:0 8px 26px var(--shadow)}
+  #ttsBar.on{display:flex}
+  #ttsBar .tlabel{font-weight:700;color:var(--accent);font-size:13px}
+  #ttsBar .tsmall{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px}
+  #ttsBar input[type=range]{width:90px;accent-color:var(--accent)}
+  .tselect{height:32px;background:#0e1116;border:1px solid var(--line);color:var(--txt);border-radius:7px;max-width:150px;font-size:12px}
+
+  @media(max-width:820px){
+    .brand .wm{font-size:16px}
+  }
+  @media(max-width:640px){
+    .brand small,#fileName{display:none}
+    .brand .wm{font-size:14px}
+    .brand .credit{font-size:9px}
+    .brand .logo{width:30px;height:30px}
+    .brand{margin-right:0}
+    button.btn,label.btn{padding:0 9px;height:36px;min-width:36px;font-size:13px}
+    #toolbar{gap:6px;padding:6px 8px;justify-content:flex-start}
+    #first,#last{display:none}                 /* γωνία/κουμπιά αρκούν */
+    #zoomLbl{display:none}
+    #pageInput{width:42px;height:32px}
+    #stage{padding:6px}
+    .spacer{display:none}
+    #navGrp{order:2}
+    #toolGrp{order:3;margin-left:auto}
+  }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <div class="brand" title="ΒιβλιοRoll — Reader">
+    <svg class="logo" viewBox="0 0 48 48" aria-hidden="true">
+      <defs>
+        <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#ff3344"/><stop offset="1" stop-color="#b3050f"/>
+        </linearGradient>
+      </defs>
+      <rect x="2" y="2" width="44" height="44" rx="12" fill="url(#lg)"/>
+      <rect x="2" y="2" width="44" height="44" rx="12" fill="none" stroke="#ffffff22"/>
+      <!-- left pages -->
+      <path d="M9 14c4.5-2.2 8.5-2.2 13 0v20c-4.5-2.2-8.5-2.2-13 0z" fill="#fff"/>
+      <!-- right pages -->
+      <path d="M39 14c-4.5-2.2-8.5-2.2-13 0v20c4.5-2.2 8.5-2.2 13 0z" fill="#ffe1e3"/>
+      <!-- flipping page -->
+      <path d="M24 13c3-2.4 6-1.4 8 1l-8 9z" fill="#fff" opacity=".92"/>
+      <!-- spine -->
+      <rect x="22.6" y="12.5" width="2.8" height="23" rx="1.2" fill="#1a1d22"/>
+      <!-- bookmark ribbon -->
+      <path d="M30 8h5v12l-2.5-2.4L30 20z" fill="#ffd400" stroke="#00000022"/>
+    </svg>
+    <span class="bwrap">
+      <span class="wm">Βιβλιο<b>Roll</b></span>
+      <span class="credit">© by Chronis Makris</span>
+    </span>
+  </div>
+
+  <label class="btn primary" for="file" title="Άνοιγμα αρχείου">📂 Άνοιγμα</label>
+  <input id="file" type="file" accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.epub" hidden />
+  <button class="btn icon" id="libBtn" title="Η βιβλιοθήκη μου">📚</button>
+  <span id="fileName"></span>
+
+  <div class="spacer"></div>
+
+  <div class="grp" id="navGrp" style="display:none">
+    <button class="btn icon" id="first" title="Πρώτη (Home)">⏮</button>
+    <button class="btn icon" id="prev" title="Προηγούμενη (←)">‹</button>
+    <span id="pageInfo">
+      <input id="pageInput" type="number" min="1" value="1" /> / <span id="pageTotal">–</span>
+    </span>
+    <button class="btn icon" id="next" title="Επόμενη (→)">›</button>
+    <button class="btn icon" id="last" title="Τελευταία (End)">⏭</button>
+  </div>
+
+  <div class="grp" id="toolGrp" style="display:none">
+    <button class="btn icon" id="pageMode" title="Μονή / διπλή σελίδα">📖</button>
+    <button class="btn icon" id="zoomOut" title="Σμίκρυνση">−</button>
+    <span id="zoomLbl">100%</span>
+    <button class="btn icon" id="zoomIn" title="Μεγέθυνση">+</button>
+    <button class="btn icon" id="bmkBtn" title="Σελιδοδείκτης (προσθήκη/αφαίρεση)">🔖</button>
+    <button class="btn icon" id="themeBtn" title="Ημέρα / Σέπια / Νύχτα">☀️</button>
+    <button class="btn icon" id="ttsBtn" title="Αφήγηση κειμένου">🗣️</button>
+    <button class="btn icon" id="copyText" title="Αντιγραφή κειμένου σελίδας">📋</button>
+    <button class="btn icon" id="annoBtn" title="Σημειώσεις (στυλό/κείμενο)">✏️</button>
+    <button class="btn icon" id="shotBtn" title="Screenshot σελίδας">📷</button>
+    <button class="btn icon" id="sound" title="Ήχος γυρίσματος">🔇</button>
+    <button class="btn icon" id="full" title="Πλήρης οθόνη">⛶</button>
+  </div>
+  <button class="btn icon" id="musicBtn" title="Μουσική">🎵</button>
+  <button class="btn primary" id="installBtn" title="Εγκατάσταση εφαρμογής" style="display:none">⬇️ Εγκατάσταση</button>
+</div>
+
+<!-- Annotation sub-toolbar -->
+<div id="annoBar">
+  <span class="atitle">✏️ Σημειώσεις</span>
+  <button class="btn icon atool active" data-tool="pen" title="Στυλό">🖊️</button>
+  <button class="btn icon atool" data-tool="text" title="Κείμενο">🔤</button>
+  <button class="btn icon atool" data-tool="erase" title="Σβήσιμο">🧽</button>
+  <span class="swatches" id="swatches"></span>
+  <input id="penSize" type="range" min="1" max="20" value="4" title="Πάχος" />
+  <button class="btn icon" id="annoUndo" title="Αναίρεση">↶</button>
+  <button class="btn icon" id="annoClear" title="Καθαρισμός">🗑️</button>
+  <button class="btn" id="annoShot" title="Αποθήκευση εικόνας">📷 Αποθήκευση</button>
+  <button class="btn" id="annoDone" title="Τέλος">✓ Τέλος</button>
+</div>
+
+<div id="main">
+<div id="stage">
+  <div id="zoomWrap"><div id="book"></div></div>
+</div>
+
+<!-- pan overlay (active when zoomed) -->
+<div id="panLayer"></div>
+
+<!-- annotation overlay (screen-space, over the current view) -->
+<div id="annoLayer"><canvas id="annoCanvas"></canvas></div>
+
+<div id="empty">
+  <div id="drop">
+    <div class="big">📖</div>
+    <h2>Σύρε ένα αρχείο εδώ ή πάτα «Άνοιγμα»</h2>
+    <p>Θα το δεις σαν πραγματικό βιβλίο με ρεαλιστικό γύρισμα σελίδας.</p>
+    <label class="btn primary" for="file">Επιλογή αρχείου</label>
+    <div class="types">
+      <span class="chip"><b>PDF</b></span>
+      <span class="chip">Word <b>.docx</b></span>
+      <span class="chip">Excel <b>.xlsx</b></span>
+      <span class="chip"><b>.csv</b></span>
+      <span class="chip"><b>EPUB</b></span>
+    </div>
+    <div class="copyright">© by Chronis Makris</div>
+  </div>
+</div>
+
+<div id="hint">
+  <span>💡 <b>Κάνε κλικ/σύρε τη γωνία</b> της σελίδας</span>
+  <span><b>← →</b> πλήκτρα</span>
+  <span>🖱️ ρόδα = zoom</span>
+</div>
+
+<div id="toast"></div>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <div id="loadTxt">Φόρτωση…</div>
+  <div class="bar"><i id="loadBar"></i></div>
+</div>
+
+<!-- ---------- Music player panel ---------- -->
+<div id="musicPanel">
+  <h3>🎵 Μουσική <span class="x" id="musicClose" title="Κλείσιμο">×</span></h3>
+
+  <div class="msec">
+    <div class="lbl">Διαδικτυακός σταθμός</div>
+    <div class="mrow">
+      <input class="minput" id="radioUrl" type="url" placeholder="https://stream…  (mp3/aac/m3u8)" />
+      <button class="btn primary" id="radioPlay" style="height:36px">▶</button>
+    </div>
+    <div class="mrow" style="margin-top:7px">
+      <input class="minput" id="newStName" type="text" placeholder="Όνομα σταθμού" style="flex:.9" />
+      <button class="btn" id="addStation" style="height:36px" title="Προσθήκη στους δικούς μου">＋</button>
+    </div>
+    <div id="customWrap" style="display:none">
+      <div class="pcat">⭐ Δικοί μου</div>
+      <div class="prow" id="customStations"></div>
+    </div>
+    <div class="mrow" style="justify-content:space-between;margin-top:10px">
+      <span class="lbl" style="margin:0">Προτεινόμενοι σταθμοί</span>
+      <span style="display:flex;gap:6px">
+        <button class="preset" id="restoreBtn" style="display:none" title="Επαναφορά κρυμμένων">↺ Επαναφορά</button>
+        <button class="preset" id="manageBtn" title="Κρύψε όσους δεν θες">✏️ Διαχείριση</button>
+      </span>
+    </div>
+    <div class="presets" id="presets"></div>
+  </div>
+
+  <div class="msec">
+    <div class="lbl">Από τη συσκευή σου</div>
+    <label class="btn" for="audioFiles" style="width:100%;height:38px">📱 Επιλογή τραγουδιών</label>
+    <input id="audioFiles" type="file" accept="audio/*" multiple hidden />
+    <ul id="playlist"></ul>
+  </div>
+
+  <div class="msec" id="nowBox" style="display:none">
+    <div class="nowplaying" id="nowTitle">—</div>
+    <div class="nowsub" id="nowSub"></div>
+    <div class="mctrls">
+      <button class="mbtn" id="mPrev" title="Προηγούμενο">⏮</button>
+      <button class="mbtn play" id="mPlay" title="Play/Pause">▶</button>
+      <button class="mbtn" id="mNext" title="Επόμενο">⏭</button>
+    </div>
+    <div class="vol">🔉<input id="mVol" type="range" min="0" max="1" step="0.01" value="0.8" />🔊</div>
+  </div>
+  <audio id="audio" crossorigin="anonymous"></audio>
+</div>
+
+<!-- Bookmark ribbon (shown when current page is bookmarked) -->
+<div id="ribbon" title="Σελιδοδείκτες"><span id="ribbonList">🔖</span></div>
+
+<!-- Bookmarks popover -->
+<div id="bmkPop">
+  <h4>🔖 Σελιδοδείκτες <span class="x" id="bmkClose">×</span></h4>
+  <div id="bmkItems"></div>
+  <div id="bmkEmpty" class="empty2">Δεν υπάρχουν σελιδοδείκτες. Πάτα 🔖 σε μια σελίδα.</div>
+</div>
+
+<!-- Library panel -->
+<div id="libPanel">
+  <div class="libhead"><h3>📚 Η βιβλιοθήκη μου</h3><span class="x" id="libClose">×</span></div>
+  <div id="libGrid"></div>
+  <div id="libEmpty" class="empty2">Η βιβλιοθήκη είναι άδεια. Άνοιξε ένα αρχείο για να αποθηκευτεί εδώ αυτόματα.</div>
+</div>
+
+<!-- TTS narration bar -->
+<div id="ttsBar">
+  <span class="tlabel">🗣️ Αφήγηση</span>
+  <button class="btn icon" id="ttsPlay" title="Play/Pause">▶</button>
+  <button class="btn icon" id="ttsStop" title="Διακοπή">⏹</button>
+  <label class="tsmall">Ταχύτητα</label>
+  <input id="ttsRate" type="range" min="0.6" max="1.8" step="0.1" value="1" />
+  <select id="ttsVoice" class="tselect" title="Φωνή"></select>
+  <label class="tsmall"><input type="checkbox" id="ttsAuto" checked /> αυτόματη σελίδα</label>
+  <button class="btn" id="ttsClose">✓ Κλείσιμο</button>
+</div>
+
+</div><!-- /#main -->
+
+<script>
+"use strict";
+
+/* ================= setup ================= */
+// Standalone build inlines the worker as a base64 island (<script id="__pdfworker"
+// type="text/plain" data-enc="base64">). We turn it into a blob URL — works even from
+// file://. The folder build has no island → uses the local vendor worker file.
+(function(){
+  var wEl=document.getElementById("__pdfworker");
+  if(wEl && wEl.textContent.trim().length>1000){
+    try{
+      var raw=wEl.textContent.trim(), blob;
+      if(wEl.getAttribute("data-enc")==="base64"){
+        var s=atob(raw), a=new Uint8Array(s.length);
+        for(var i=0;i<s.length;i++) a[i]=s.charCodeAt(i);
+        blob=new Blob([a],{type:"text/javascript"});
+      } else {
+        blob=new Blob([raw],{type:"text/javascript"});
+      }
+      pdfjsLib.GlobalWorkerOptions.workerSrc=URL.createObjectURL(blob);
+      return;
+    }catch(e){}
+  }
+  pdfjsLib.GlobalWorkerOptions.workerSrc="vendor/pdf.worker.min.js";
+})();
+
+const $ = id => document.getElementById(id);
+const stage=$("stage"), zoomWrap=$("zoomWrap");
+let bookEl=$("book");
+const emptyEl=$("empty"), dropEl=$("drop"), loadingEl=$("loading");
+const loadTxt=$("loadTxt"), loadBar=$("loadBar");
+
+let flip=null;         // StPageFlip instance
+let totalPages=0;
+let zoom=1;
+let soundOn=false;
+let audioCtx=null;
+let flipExtra=null;    // extra per-file flip handler (lazy PDF render)
+let pdfDoc=null, pdfRenderScale=1;
+const pdfRendered=new Set();
+let curRatio=0.707;    // page width/height of current document
+let forceSingle=false; // εμφάνιση μονής σελίδας αντί για δισέλιδο
+
+/* ================= helpers ================= */
+function showLoading(txt){ loadTxt.textContent=txt||"Φόρτωση…"; loadBar.style.width="0%"; loadingEl.classList.add("on"); }
+function setProgress(p){ loadBar.style.width=Math.round(p*100)+"%"; }
+function hideLoading(){ loadingEl.classList.remove("on"); }
+function toast(msg){ const t=$("toast"); t.textContent=msg; t.classList.add("on"); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove("on"),4200); }
+
+function readFile(file, as){
+  return new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=()=>res(r.result); r.onerror=rej;
+    if(as==="array") r.readAsArrayBuffer(file); else r.readAsText(file);
+  });
+}
+
+/* ================= flip factory ================= */
+// StPageFlip removes/replaces #book on destroy(), leaving a stale detached node.
+// Recreate a fresh, attached #book each time so re-opening a file always renders.
+function resetBook(){
+  zoomWrap.innerHTML="";
+  bookEl=document.createElement("div");
+  bookEl.id="book";
+  zoomWrap.appendChild(bookEl);
+}
+function destroyFlip(){
+  if(flip){ try{flip.destroy();}catch(e){} flip=null; }
+  resetBook();
+  flipExtra=null;
+  pdfRendered.clear();
+}
+
+function computeBookSize(ratio){
+  // ratio = pageWidth/pageHeight (single page). Fit within stage.
+  // Fall back to window size if the stage hasn't been laid out yet (0 height),
+  // and clamp so StPageFlip never receives a non-positive width/height.
+  const availH = Math.max(280, (stage.clientHeight||window.innerHeight||600) - 40);
+  const availW = Math.max(220, (stage.clientWidth ||window.innerWidth ||400) - 30);
+  const portrait = forceSingle || (window.innerWidth||400) < 820;   // single page: forced ή σε στενές οθόνες
+  let h = availH;
+  let w = h*ratio;
+  const spreadW = portrait ? w : w*2;
+  if(spreadW>availW){                          // shrink to fit width
+    const k = availW/spreadW; h*=k; w*=k;
+  }
+  return {w:Math.max(140,Math.round(w)), h:Math.max(200,Math.round(h)), portrait};
+}
+
+// Give the flip container an explicit box so StPageFlip "stretch" fills it.
+// StPageFlip overwrites #book width to 100%, so we size its parent (#zoomWrap).
+function applyBookSize(){
+  const s=computeBookSize(curRatio);
+  const boxW=(s.portrait ? s.w : s.w*2);
+  zoomWrap.style.width=boxW+"px";
+  zoomWrap.style.height=s.h+"px";
+  return s;
+}
+
+function initFlip(mode, ratio){
+  curRatio=ratio;
+  const s=applyBookSize();
+  flip=new St.PageFlip(bookEl,{
+    width:s.w, height:s.h,
+    size:"stretch",
+    minWidth: forceSingle?Math.ceil(s.w*0.55):180, maxWidth:2600,   // 2*minWidth>πλάτος => μονή σελίδα (portrait), χωρίς να μολύνει το μέγεθος
+    minHeight:240, maxHeight:3400,
+    drawShadow:true,
+    flippingTime:700,
+    usePortrait:true,
+    startZIndex:5,
+    autoSize:true,
+    maxShadowOpacity:0.55,
+    showCover:true,
+    mobileScrollSupport:false,
+    swipeDistance:22,
+    clickEventForward:true,
+    useMouseEvents:true
+  });
+  flip.on("flip", e=>{ setCurrent(e.data); playFlip(); if(flipExtra) flipExtra(e.data); if(typeof onPageChange==="function") onPageChange(e.data); });
+  return s;
+}
+
+/* ================= PDF (lazy on-demand rendering) ================= */
+async function openPDF(buf){
+  showLoading("Ανάλυση PDF…");
+  const pdf = await pdfjsLib.getDocument({data:buf}).promise;
+  pdfDoc = pdf;
+  const n = pdf.numPages;
+  const p1 = await pdf.getPage(1);
+  const vp1 = p1.getViewport({scale:1});
+  const ratio = vp1.width/vp1.height;
+  pdfRenderScale = Math.min(3, Math.max(1, 960/vp1.width)); // quality
+  p1.cleanup();
+
+  destroyFlip();
+  // build lightweight placeholder pages (instant)
+  const baseH=760, baseW=Math.round(baseH*ratio);
+  for(let i=1;i<=n;i++){
+    const pg=document.createElement("div");
+    pg.className="page pdfpage"; pg.dataset.page=i;
+    pg.style.width=baseW+"px"; pg.style.height=baseH+"px"; pg.style.position="relative";
+    pg.innerHTML='<div class="ph">'+i+'</div>';
+    bookEl.appendChild(pg);
+  }
+  initFlip("html", ratio);
+  flip.loadFromHTML(bookEl.querySelectorAll(".page"));
+  flipExtra = idx => renderAround(idx);
+  finishOpen(n);
+  await renderAround(0);   // render the first spread immediately
+}
+
+async function renderPdfPage(i){            // i = 0-based
+  if(!pdfDoc || pdfRendered.has(i) || i<0 || i>=totalPages) return;
+  pdfRendered.add(i);
+  const el=bookEl.querySelector('.pdfpage[data-page="'+(i+1)+'"]');
+  if(!el) return;
+  try{
+    const page=await pdfDoc.getPage(i+1);
+    const vp=page.getViewport({scale:pdfRenderScale});
+    const canvas=document.createElement("canvas");
+    canvas.width=Math.ceil(vp.width); canvas.height=Math.ceil(vp.height);
+    const ctx=canvas.getContext("2d",{alpha:false});
+    ctx.fillStyle="#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
+    await page.render({canvasContext:ctx, viewport:vp}).promise;
+    el.innerHTML=""; el.appendChild(canvas);
+    page.cleanup();
+  }catch(e){ pdfRendered.delete(i); }
+}
+
+async function renderAround(idx){
+  // render current spread + a small look-ahead/behind window
+  const from=Math.max(0, idx-2), to=Math.min(totalPages-1, idx+3);
+  for(let i=from;i<=to;i++){ await renderPdfPage(i); }
+}
+
+/* ================= HTML pagination (Word/Excel) ================= */
+// base layout size for a single doc page (A4-ish portrait)
+const DOC_W = 500, DOC_H = 707;
+
+function makeDocPage(extraClass){
+  const el=document.createElement("div");
+  el.className="page docpage"+(extraClass?(" "+extraClass):"");
+  el.style.width=DOC_W+"px"; el.style.height=DOC_H+"px";
+  el.style.position="relative";
+  return el;
+}
+function coverPage(title, subtitle){
+  const el=makeDocPage("cover");
+  el.innerHTML=`<div class="cs">${subtitle||""}</div>
+    <div class="ct">${escapeHtml(title)}</div>
+    <div class="cl">ΒιβλιοRoll · © by Chronis Makris</div>`;
+  return el;
+}
+function escapeHtml(s){return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+
+// Offscreen host to measure page fill
+function makeMeasureHost(){
+  const host=document.createElement("div");
+  host.style.cssText="position:fixed;left:-99999px;top:0;visibility:hidden;";
+  document.body.appendChild(host);
+  return host;
+}
+
+/* Flow an array of block nodes into fixed-size .docpage elements */
+function paginateNodes(nodes){
+  const host=makeMeasureHost();
+  const pages=[];
+  let page=makeDocPage(); host.appendChild(page);
+  const contentH = ()=> page.clientHeight;
+  const fits = ()=> page.scrollHeight <= page.clientHeight + 1;
+  function pushPage(){ pages.push(page); page=makeDocPage(); host.appendChild(page); }
+  const MAX=3000;
+
+  for(const raw of nodes){
+    if(pages.length>MAX) break;
+    const node=raw.cloneNode(true);
+    page.appendChild(node);
+    if(fits()) continue;
+
+    // remove; if page already has content, move node to a fresh page
+    page.removeChild(node);
+    if(page.childNodes.length>0){ pushPage(); page.appendChild(node); if(fits()) continue; page.removeChild(node); }
+
+    // node alone doesn't fit -> split
+    if(node.tagName==="TABLE"){
+      splitTableInto(node, page, pushPage, fits);
+    } else if(hasLongText(node)){
+      splitTextInto(node, page, pushPage, fits);
+    } else {
+      // accept overflow (image/other)
+      page.appendChild(node);
+      pushPage();
+    }
+  }
+  pages.push(page);
+  // detach
+  pages.forEach(p=>{ if(p.parentNode) p.parentNode.removeChild(p); });
+  host.remove();
+  return pages;
+}
+
+function hasLongText(node){
+  return (node.textContent||"").trim().length>40;
+}
+
+function splitTextInto(node, page, pushPage, fits){
+  // rebuild node word by word
+  const tag=node.tagName?node.tagName.toLowerCase():"p";
+  const cls=node.className||"";
+  const words=(node.textContent||"").split(/(\s+)/);
+  let cur=document.createElement(tag); if(cls)cur.className=cls;
+  page.appendChild(cur);
+  let buf="";
+  for(let i=0;i<words.length;i++){
+    const test=buf+words[i];
+    cur.textContent=test;
+    if(!fits()){
+      // revert last word
+      cur.textContent=buf.trimEnd();
+      pushPage();
+      cur=document.createElement(tag); if(cls)cur.className=cls;
+      page.appendChild(cur);
+      buf=words[i].replace(/^\s+/,"");
+      cur.textContent=buf;
+    } else {
+      buf=test;
+    }
+  }
+}
+
+function splitTableInto(table, page, pushPage, fits){
+  const thead=table.querySelector("thead");
+  const rows=Array.from(table.querySelectorAll("tbody > tr, table > tr"));
+  const bodyRows = rows.length ? rows : Array.from(table.rows);
+  function freshTable(){
+    const t=document.createElement("table");
+    if(table.className)t.className=table.className;
+    if(thead) t.appendChild(thead.cloneNode(true));
+    const tb=document.createElement("tbody"); t.appendChild(tb);
+    return {t,tb};
+  }
+  let {t,tb}=freshTable();
+  page.appendChild(t);
+  for(const r of bodyRows){
+    tb.appendChild(r.cloneNode(true));
+    if(!fits()){
+      tb.removeChild(tb.lastChild);
+      if(tb.childNodes.length===0){ // single row too tall -> force
+        tb.appendChild(r.cloneNode(true));
+        pushPage(); const nf=freshTable(); t=nf.t; tb=nf.tb; page.appendChild(t);
+        continue;
+      }
+      pushPage();
+      const nf=freshTable(); t=nf.t; tb=nf.tb; page.appendChild(t);
+      tb.appendChild(r.cloneNode(true));
+    }
+  }
+}
+
+function buildFromDocPages(pages){
+  destroyFlip();
+  pages.forEach((p,i)=>{
+    if(!p.classList.contains("cover")){
+      const num=document.createElement("div");
+      num.className="pagenum"; num.textContent=(i+1);
+      p.appendChild(num);
+    }
+    bookEl.appendChild(p);
+  });
+  initFlip("html", DOC_W/DOC_H);
+  flip.loadFromHTML(bookEl.querySelectorAll(".page"));
+  finishOpen(pages.length);
+}
+
+/* ================= Word ================= */
+async function openWord(buf, name){
+  showLoading("Μετατροπή Word…");
+  const result = await mammoth.convertToHtml({arrayBuffer:buf});
+  const holder=document.createElement("div");
+  holder.innerHTML=result.value||"<p>(κενό έγγραφο)</p>";
+  const nodes=Array.from(holder.childNodes).filter(n=>{
+    return n.nodeType===1 || (n.nodeType===3 && n.textContent.trim());
+  }).map(n=> n.nodeType===3 ? wrapText(n) : n);
+  showLoading("Σελιδοποίηση…");
+  await new Promise(r=>setTimeout(r,30));
+  const pages=[coverPage(cleanName(name),"Έγγραφο Word"), ...paginateNodes(nodes)];
+  buildFromDocPages(pages);
+}
+function wrapText(tn){ const p=document.createElement("p"); p.textContent=tn.textContent; return p; }
+
+/* ================= Excel / CSV ================= */
+async function openExcel(buf, name, isCsv){
+  showLoading("Ανάγνωση Excel…");
+  const wb = isCsv ? XLSX.read(buf,{type:"string"}) : XLSX.read(buf,{type:"array"});
+  const holder=document.createElement("div");
+  wb.SheetNames.forEach((sn,idx)=>{
+    const ws=wb.Sheets[sn];
+    const title=document.createElement("div");
+    title.className="sheetTitle"; title.textContent=sn;
+    holder.appendChild(title);
+    const tblHtml=XLSX.utils.sheet_to_html(ws,{editable:false,header:""});
+    const tmp=document.createElement("div"); tmp.innerHTML=tblHtml;
+    const table=tmp.querySelector("table");
+    if(table){
+      // turn first row into thead for repeat-on-split
+      const firstTr=table.querySelector("tr");
+      if(firstTr){
+        const thead=document.createElement("thead");
+        const clone=firstTr.cloneNode(true);
+        // convert td->th
+        clone.querySelectorAll("td").forEach(td=>{
+          const th=document.createElement("th"); th.innerHTML=td.innerHTML; td.replaceWith(th);
+        });
+        thead.appendChild(clone);
+        table.insertBefore(thead, table.firstChild);
+        firstTr.remove();
+      }
+      holder.appendChild(table);
+    }
+  });
+  const nodes=Array.from(holder.childNodes);
+  showLoading("Σελιδοποίηση…");
+  await new Promise(r=>setTimeout(r,30));
+  const pages=[coverPage(cleanName(name),"Υπολογιστικό φύλλο Excel"), ...paginateNodes(nodes)];
+  buildFromDocPages(pages);
+}
+
+/* ================= EPUB ================= */
+function zipPath(base, rel){
+  // resolve rel against base dir (both zip-internal, forward slashes)
+  if(/^https?:|^data:/.test(rel)) return rel;
+  const stack=base.split("/"); stack.pop(); // drop filename
+  rel.split("/").forEach(p=>{
+    if(p===".."){ stack.pop(); } else if(p==="."||p===""){} else stack.push(p);
+  });
+  return stack.join("/");
+}
+function mimeFromExt(p){
+  const e=(p.split(".").pop()||"").toLowerCase();
+  return ({jpg:"image/jpeg",jpeg:"image/jpeg",png:"image/png",gif:"image/gif",
+           svg:"image/svg+xml",webp:"image/webp"})[e]||"application/octet-stream";
+}
+async function openEpub(buf, name){
+  if(typeof JSZip==="undefined"){ throw new Error("Λείπει η βιβλιοθήκη JSZip"); }
+  showLoading("Άνοιγμα EPUB…");
+  const zip=await JSZip.loadAsync(buf);
+  // 1) container.xml -> OPF path
+  const contXml=await zip.file("META-INF/container.xml").async("string");
+  const opfPath=new DOMParser().parseFromString(contXml,"application/xml")
+      .querySelector("rootfile").getAttribute("full-path");
+  const opfXml=await zip.file(opfPath).async("string");
+  const opf=new DOMParser().parseFromString(opfXml,"application/xml");
+  // book title
+  const titleEl=opf.querySelector("metadata > title, title");
+  const bookTitle=(titleEl&&titleEl.textContent.trim())||cleanName(name);
+  // 2) manifest id -> {href, type}
+  const manifest={};
+  opf.querySelectorAll("manifest > item").forEach(it=>{
+    manifest[it.getAttribute("id")]={ href:it.getAttribute("href"), type:it.getAttribute("media-type")||"" };
+  });
+  // 3) spine order
+  const spine=[...opf.querySelectorAll("spine > itemref")].map(r=>r.getAttribute("idref"));
+
+  const nodes=[];
+  let done=0;
+  for(const idref of spine){
+    const item=manifest[idref];
+    if(!item||!/html|xml/.test(item.type)) { done++; continue; }
+    const href=zipPath(opfPath, item.href);
+    const f=zip.file(href);
+    if(!f){ done++; continue; }
+    showLoading(`Ανάγνωση κεφαλαίων… ${++done}/${spine.length}`);
+    let html=await f.async("string");
+    const doc=new DOMParser().parseFromString(html,"text/html");
+    const body=doc.body; if(!body) continue;
+    body.querySelectorAll("script,style,link").forEach(n=>n.remove());
+    // inline images as data URLs
+    const imgs=[...body.querySelectorAll("img,image")];
+    for(const img of imgs){
+      const src=img.getAttribute("src")||img.getAttribute("xlink:href")||img.getAttribute("href");
+      if(!src||/^data:/.test(src)) continue;
+      const ip=zipPath(href, src.split("#")[0]);
+      const zf=zip.file(ip);
+      if(zf){
+        try{
+          const b64=await zf.async("base64");
+          img.setAttribute("src","data:"+mimeFromExt(ip)+";base64,"+b64);
+          img.removeAttribute("xlink:href"); img.removeAttribute("height");
+        }catch(e){}
+      }
+    }
+    // collect block children
+    [...body.childNodes].forEach(nd=>{
+      if(nd.nodeType===1) nodes.push(nd.cloneNode(true));
+      else if(nd.nodeType===3 && nd.textContent.trim()) nodes.push(wrapText(nd));
+    });
+    if(spine.indexOf(idref)<spine.length-1){
+      const spacer=document.createElement("div"); spacer.style.height="6px"; nodes.push(spacer);
+    }
+    await new Promise(r=>setTimeout(r)); // yield
+  }
+  showLoading("Σελιδοποίηση βιβλίου…");
+  await new Promise(r=>setTimeout(r,30));
+  const pages=[coverPage(bookTitle,"EPUB βιβλίο"), ...paginateNodes(nodes)];
+  buildFromDocPages(pages);
+}
+
+/* ================= open dispatcher ================= */
+function cleanName(n){ return n.replace(/\.[^.]+$/,""); }
+
+async function openFile(file){
+  if(!file) return;
+  if(typeof saveCurrentAnno==="function") saveCurrentAnno(); // persist previous book's marks
+  const name=file.name;
+  const ext=(name.split(".").pop()||"").toLowerCase();
+  currentFile=file; currentBookId=name+"__"+file.size; book=null;
+  $("fileName").textContent=name;
+  emptyEl.style.display="none";
+  try{
+    if(ext==="pdf"){
+      const buf=await readFile(file,"array");
+      await openPDF(buf);
+    } else if(ext==="docx"){
+      const buf=await readFile(file,"array");
+      await openWord(buf,name);
+    } else if(ext==="doc"){
+      toast("Το παλιό .doc δεν υποστηρίζεται πλήρως — αποθήκευσέ το ως .docx.");
+      const buf=await readFile(file,"array");
+      await openWord(buf,name);
+    } else if(ext==="xlsx"||ext==="xls"){
+      const buf=await readFile(file,"array");
+      await openExcel(new Uint8Array(buf),name,false);
+    } else if(ext==="csv"){
+      const txt=await readFile(file,"text");
+      await openExcel(txt,name,true);
+    } else if(ext==="epub"){
+      const buf=await readFile(file,"array");
+      await openEpub(buf,name);
+    } else {
+      hideLoading(); emptyEl.style.display="flex";
+      toast("Μη υποστηριζόμενος τύπος: ."+ext);
+    }
+  }catch(err){
+    console.error(err);
+    hideLoading(); emptyEl.style.display="flex";
+    toast("Σφάλμα ανοίγματος: "+(err&&err.message?err.message:err));
+  }
+}
+
+function finishOpen(n){
+  totalPages=n;
+  $("pageTotal").textContent=n;
+  $("pageInput").max=n;
+  $("pageInput").value=1;
+  $("navGrp").style.display="flex";
+  $("toolGrp").style.display="flex";
+  $("hint").classList.add("on");
+  hideLoading();
+  setCurrent(0);
+  zoom=1; applyZoom();
+  if(typeof toggleAnno==="function"){ toggleAnno(false); if(typeof clearOverlay==="function") clearOverlay(); }
+  clearTimeout(finishOpen._h);
+  finishOpen._h=setTimeout(()=>$("hint").classList.remove("on"),6000);
+  if(typeof afterOpen==="function") afterOpen();
+}
+
+function setCurrent(idx){
+  const cur=(idx||0)+1;
+  $("pageInput").value=Math.min(cur,totalPages);
+}
+
+/* ================= sound ================= */
+// Realistic paper page-turn: a "shhf" of filtered noise whose brightness sweeps
+// down as the sheet passes, with two soft flutters (bend + release) and a light crackle.
+function playFlip(){
+  if(!soundOn) return;
+  try{
+    audioCtx=audioCtx||new (window.AudioContext||window.webkitAudioContext)();
+    const ctx=audioCtx;
+    if(ctx.state==="suspended") ctx.resume();
+    const t0=ctx.currentTime;
+    const dur=0.42;
+    const len=Math.floor(ctx.sampleRate*dur);
+
+    // pink-ish noise (softer than white) with subtle amplitude flutter = paper texture
+    const buf=ctx.createBuffer(1,len,ctx.sampleRate), d=buf.getChannelData(0);
+    let b0=0,b1=0,b2=0;
+    for(let i=0;i<len;i++){
+      const w=Math.random()*2-1;
+      b0=0.99*b0+w*0.12; b1=0.96*b1+w*0.16; b2=0.80*b2+w*0.28;
+      let s=b0+b1+b2+w*0.1;
+      const p=i/len;
+      const flutter=1+0.35*Math.sin(p*Math.PI*18)*Math.exp(-2*p); // fast rustle
+      d[i]=s*0.18*flutter;
+    }
+    const src=ctx.createBufferSource(); src.buffer=buf;
+
+    // band-pass that sweeps 3.2kHz -> 700Hz = the sheet sliding past the ear
+    const bp=ctx.createBiquadFilter(); bp.type="bandpass"; bp.Q.value=0.9;
+    bp.frequency.setValueAtTime(3200,t0);
+    bp.frequency.exponentialRampToValueAtTime(700,t0+dur);
+    const hp=ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=350;
+
+    // two-hump envelope: quick swish (bend) then a softer settle (release)
+    const g=ctx.createGain();
+    g.gain.setValueAtTime(0.0001,t0);
+    g.gain.exponentialRampToValueAtTime(0.5, t0+0.03);   // attack
+    g.gain.exponentialRampToValueAtTime(0.12,t0+0.16);   // first swish decays
+    g.gain.exponentialRampToValueAtTime(0.28,t0+0.24);   // release flap
+    g.gain.exponentialRampToValueAtTime(0.0006,t0+dur);  // tail
+
+    src.connect(hp).connect(bp).connect(g).connect(ctx.destination);
+    src.start(t0); src.stop(t0+dur);
+  }catch(e){}
+}
+
+/* ================= zoom + pan ================= */
+let panX=0, panY=0;
+function clampPan(){
+  const r=stage.getBoundingClientRect();
+  const w=zoomWrap.offsetWidth*zoom, h=zoomWrap.offsetHeight*zoom;
+  const mx=Math.max(0,(w-r.width)/2)+40, my=Math.max(0,(h-r.height)/2)+40;
+  panX=Math.min(mx,Math.max(-mx,panX)); panY=Math.min(my,Math.max(-my,panY));
+}
+function applyZoom(){
+  if(zoom<=1.001){ panX=0; panY=0; }
+  clampPan();
+  zoomWrap.style.transform=`translate(${panX}px,${panY}px) scale(${zoom})`;
+  $("zoomLbl").textContent=Math.round(zoom*100)+"%";
+  $("panLayer").classList.toggle("on", zoom>1.02);   // active only when zoomed
+}
+// Zoom toward a stage point (sx,sy). Omit to keep centre.
+function setZoom(z, sx, sy){
+  const r=stage.getBoundingClientRect();
+  const cx=(sx==null? r.width/2 : sx-r.left), cy=(sy==null? r.height/2 : sy-r.top);
+  const fx=cx-r.width/2, fy=cy-r.height/2;
+  const z0=zoom, z1=Math.min(4,Math.max(1,z));
+  panX=fx-(fx-panX)/z0*z1; panY=fy-(fy-panY)/z0*z1;
+  zoom=z1; applyZoom();
+}
+function resetZoom(){ zoom=1; panX=0; panY=0; applyZoom(); }
+
+/* ================= events ================= */
+$("file").addEventListener("change",e=>{ const f=e.target.files[0]; e.target.value=""; openFile(f); });
+
+$("prev").onclick=()=> flip&&flip.flipPrev();
+$("next").onclick=()=> flip&&flip.flipNext();
+$("first").onclick=()=> flip&&flip.flip(0);
+$("last").onclick =()=> flip&&flip.flip(totalPages-1);
+$("pageInput").addEventListener("change",e=>{
+  let v=parseInt(e.target.value,10); if(isNaN(v))return;
+  v=Math.min(totalPages,Math.max(1,v)); if(flip) flip.flip(v-1);
+});
+$("zoomIn").onclick =()=> setZoom(zoom+0.25);
+$("zoomOut").onclick=()=> (zoom-0.25<=1 ? resetZoom() : setZoom(zoom-0.25));
+
+/* single / double page toggle — StPageFlip picks orientation only on a fresh init,
+   so we rebuild it reusing the SAME (already-rendered) page nodes. */
+function rebuildFlip(keepPage){
+  if(!flip) return;
+  const cur = keepPage!=null ? keepPage : (currentIndices()[0]||0);
+  const pages=[...bookEl.querySelectorAll(".page")];   // detach current nodes (canvases intact)
+  pages.forEach(p=>p.parentNode&&p.parentNode.removeChild(p));
+  try{ flip.destroy(); }catch(e){}
+  flip=null;
+  zoomWrap.innerHTML=""; bookEl=document.createElement("div"); bookEl.id="book"; zoomWrap.appendChild(bookEl);
+  pages.forEach(p=>bookEl.appendChild(p));
+  resetZoom();
+  initFlip("html", curRatio);
+  flip.loadFromHTML(bookEl.querySelectorAll(".page"));
+  flipExtra = pdfDoc ? (idx=>renderAround(idx)) : null;
+  setPageTheme(pageTheme, true);
+  setTimeout(()=>{ try{ flip.turnToPage?flip.turnToPage(cur):flip.flip(cur); }catch(_){}
+    annoPageIdx=currentIndices()[0]; loadAnnosForCurrent(); updateRibbon(); },80);
+}
+function updatePageModeBtn(){
+  $("pageMode").textContent=forceSingle?"📄":"📖";
+  $("pageMode").classList.toggle("primary",forceSingle);
+}
+$("pageMode").onclick=function(){
+  forceSingle=!forceSingle;
+  updatePageModeBtn();
+  try{ localStorage.setItem("biblio_pagemode", forceSingle?"single":"double"); }catch(e){}
+  if(book){ book.pageMode=forceSingle?"single":"double"; dbPut(book); }
+  rebuildFlip();
+  toast(forceSingle?"📄 Μονή σελίδα":"📖 Διπλή σελίδα (βιβλίο)");
+};
+// Restore the last-used page mode as the default for new books
+try{ forceSingle = localStorage.getItem("biblio_pagemode")==="single"; }catch(e){}
+updatePageModeBtn();
+$("sound").onclick=function(){ soundOn=!soundOn; this.textContent=soundOn?"🔊":"🔇"; this.style.color=soundOn?"var(--accent)":""; };
+$("full").onclick=()=>{ if(!document.fullscreenElement) document.documentElement.requestFullscreen&&document.documentElement.requestFullscreen(); else document.exitFullscreen&&document.exitFullscreen(); };
+
+document.addEventListener("keydown",e=>{
+  if(e.target.tagName==="INPUT")return;
+  if(!flip)return;
+  if(e.key==="ArrowLeft"){ flip.flipPrev(); }
+  else if(e.key==="ArrowRight"){ flip.flipNext(); }
+  else if(e.key==="Home"){ flip.flip(0); }
+  else if(e.key==="End"){ flip.flip(totalPages-1); }
+  else if(e.key==="+"||e.key==="="){ setZoom(zoom+0.15); }
+  else if(e.key==="-"){ setZoom(zoom-0.15); }
+});
+
+// wheel: ctrl/⌘ + wheel zooms toward the cursor; plain wheel pans when zoomed in
+stage.addEventListener("wheel",e=>{
+  if(e.ctrlKey||e.metaKey){ e.preventDefault(); setZoom(zoom + (e.deltaY<0?0.2:-0.2), e.clientX, e.clientY); }
+  else if(zoom>1.02){ e.preventDefault(); panX-=e.deltaX; panY-=e.deltaY; applyZoom(); }
+},{passive:false});
+
+/* ---- pan (drag) + pinch-zoom + double-tap-to-zoom ---- */
+const panLayer=$("panLayer");
+function tDist(t){ const dx=t[0].clientX-t[1].clientX, dy=t[0].clientY-t[1].clientY; return Math.hypot(dx,dy); }
+function tMid(t){ return {x:(t[0].clientX+t[1].clientX)/2, y:(t[0].clientY+t[1].clientY)/2}; }
+
+let dragOn=false, dsX=0, dsY=0, dpX=0, dpY=0;     // drag state
+let pinchOn=false, pDist0=0, pZoom0=1;            // pinch state
+
+// panLayer is active only when zoomed in → drag to pan, pinch to zoom more
+function plStart(x,y){ dragOn=true; dsX=x; dsY=y; dpX=panX; dpY=panY; panLayer.classList.add("grabbing"); }
+function plMove(x,y){ if(!dragOn)return; panX=dpX+(x-dsX); panY=dpY+(y-dsY); applyZoom(); }
+function plEnd(){ dragOn=false; panLayer.classList.remove("grabbing"); }
+
+panLayer.addEventListener("mousedown",e=>{ e.preventDefault(); plStart(e.clientX,e.clientY); });
+window.addEventListener("mousemove",e=>{ if(dragOn) plMove(e.clientX,e.clientY); });
+window.addEventListener("mouseup",plEnd);
+
+panLayer.addEventListener("touchstart",e=>{
+  if(e.touches.length===2){ pinchOn=true; dragOn=false; pDist0=tDist(e.touches); pZoom0=zoom; }
+  else if(e.touches.length===1){ pinchOn=false; plStart(e.touches[0].clientX,e.touches[0].clientY); }
+  e.preventDefault();
+},{passive:false});
+panLayer.addEventListener("touchmove",e=>{
+  if(pinchOn&&e.touches.length===2){ const m=tMid(e.touches); setZoom(pZoom0*tDist(e.touches)/pDist0, m.x, m.y); }
+  else if(dragOn&&e.touches.length===1){ plMove(e.touches[0].clientX,e.touches[0].clientY); }
+  e.preventDefault();
+},{passive:false});
+panLayer.addEventListener("touchend",e=>{ if(e.touches.length===0){ plEnd(); pinchOn=false; } });
+
+// pinch to zoom starting from 100% (panLayer is off then, so listen on the stage)
+stage.addEventListener("touchstart",e=>{
+  if(e.touches.length===2 && zoom<=1.02){ pinchOn=true; pDist0=tDist(e.touches); pZoom0=zoom; e.stopPropagation(); e.preventDefault(); }
+},{passive:false,capture:true});
+stage.addEventListener("touchmove",e=>{
+  if(pinchOn&&e.touches.length===2){ const m=tMid(e.touches); setZoom(pZoom0*tDist(e.touches)/pDist0, m.x, m.y); e.stopPropagation(); e.preventDefault(); }
+},{passive:false,capture:true});
+stage.addEventListener("touchend",e=>{ if(e.touches.length<2) pinchOn=false; },{capture:true});
+
+// double-tap / double-click to zoom exactly where you tap (and back)
+stage.addEventListener("dblclick",e=>{ if(zoom>1.02) resetZoom(); else setZoom(2.4, e.clientX, e.clientY); });
+let lastTap=0,ltX=0,ltY=0;
+stage.addEventListener("touchend",e=>{
+  if(e.changedTouches.length!==1) return;
+  const t=e.changedTouches[0], now=Date.now();
+  if(now-lastTap<300 && Math.abs(t.clientX-ltX)<32 && Math.abs(t.clientY-ltY)<32){
+    if(zoom>1.02) resetZoom(); else setZoom(2.4, t.clientX, t.clientY);
+    lastTap=0;
+  } else { lastTap=now; ltX=t.clientX; ltY=t.clientY; }
+});
+
+// drag & drop
+["dragenter","dragover"].forEach(ev=>window.addEventListener(ev,e=>{e.preventDefault();dropEl.classList.add("hot");}));
+["dragleave","drop"].forEach(ev=>window.addEventListener(ev,e=>{e.preventDefault();if(ev!=="dragover")dropEl.classList.remove("hot");}));
+window.addEventListener("drop",e=>{ e.preventDefault(); dropEl.classList.remove("hot"); const f=e.dataTransfer.files&&e.dataTransfer.files[0]; if(f)openFile(f); });
+
+// resize -> recompute book box + refit
+let rz;
+function refit(){ if(!flip) return; applyBookSize(); try{ flip.update(); }catch(e){} sizeAnno(); }
+window.addEventListener("resize",()=>{ clearTimeout(rz); rz=setTimeout(refit,180); });
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden) setTimeout(refit,120); });
+
+/* ================= Copy page text ================= */
+function currentIndices(){
+  let idx=0; try{ idx=flip?flip.getCurrentPageIndex():0; }catch(e){}
+  return [idx, idx+1].filter(i=>i>=0 && i<totalPages);
+}
+async function currentPageText(){
+  const parts=[];
+  for(const i of currentIndices()){
+    const el=bookEl.querySelector('.pdfpage[data-page="'+(i+1)+'"]');
+    if(el && pdfDoc){                       // PDF -> extract via pdf.js
+      try{
+        const page=await pdfDoc.getPage(i+1);
+        const tc=await page.getTextContent();
+        let last=null, line="";
+        tc.items.forEach(it=>{
+          const y=it.transform[5];
+          if(last!==null && Math.abs(y-last)>3){ parts.push(line.trim()); line=""; }
+          line+=it.str+(it.hasEOL?"\n":" "); last=y;
+        });
+        if(line.trim()) parts.push(line.trim());
+      }catch(e){}
+    } else {                                // Word/Excel/EPUB page
+      const dp=bookEl.querySelectorAll('.docpage');
+      if(dp[i]) parts.push(dp[i].innerText.trim());
+    }
+  }
+  return parts.join("\n\n").replace(/\n{3,}/g,"\n\n").trim();
+}
+async function copyCurrentText(){
+  const t=await currentPageText();
+  if(!t){ toast("Δεν βρέθηκε κείμενο σε αυτή τη σελίδα."); return; }
+  try{ await navigator.clipboard.writeText(t); toast("📋 Αντιγράφηκε το κείμενο της σελίδας ("+t.length+" χαρακτ.)"); }
+  catch(e){
+    // fallback
+    const ta=document.createElement("textarea"); ta.value=t; document.body.appendChild(ta); ta.select();
+    try{ document.execCommand("copy"); toast("📋 Αντιγράφηκε το κείμενο."); }catch(_){ toast("Αδυναμία αντιγραφής."); }
+    ta.remove();
+  }
+}
+$("copyText").onclick=copyCurrentText;
+
+/* ================= Screenshot ================= */
+function bgColor(){ return getComputedStyle(document.body).backgroundColor||"#0d0f12"; }
+async function captureView(){
+  const ignore=["musicPanel","loading","empty","hint","toast","annoBar"];
+  return await html2canvas($("main"),{
+    scale:2, backgroundColor:bgColor(), useCORS:true, logging:false,
+    ignoreElements: el => ignore.includes(el.id)
+  });
+}
+async function saveScreenshot(){
+  toast("📷 Δημιουργία εικόνας…");
+  try{
+    const cv=await captureView();
+    cv.toBlob(async blob=>{
+      if(!blob){ toast("Αποτυχία screenshot."); return; }
+      // download
+      const a=document.createElement("a");
+      a.href=URL.createObjectURL(blob);
+      a.download=($("fileName").textContent.replace(/\.[^.]+$/,"")||"σελίδα")+"_σελ"+(currentIndices()[0]+1)+".png";
+      a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+      // clipboard (best-effort)
+      try{ await navigator.clipboard.write([new ClipboardItem({"image/png":blob})]); toast("📷 Αποθηκεύτηκε & αντιγράφηκε η εικόνα."); }
+      catch(e){ toast("📷 Αποθηκεύτηκε η εικόνα (PNG)."); }
+    },"image/png");
+  }catch(e){ toast("Σφάλμα screenshot: "+(e.message||e)); }
+}
+$("shotBtn").onclick=saveScreenshot;
+
+/* ================= Annotations (pen / text) ================= */
+const annoLayer=$("annoLayer"), annoCanvas=$("annoCanvas"), actx=annoCanvas.getContext("2d");
+let annoOn=false, tool="pen", penColor="#e30613", penSize=4;
+let drawing=false, undoStack=[];
+const COLORS=["#e30613","#ffd400","#22b0ff","#18c964","#ffffff","#111111"];
+
+function buildSwatches(){
+  const box=$("swatches"); box.innerHTML="";
+  COLORS.forEach((c,i)=>{
+    const s=document.createElement("span"); s.className="swatch"+(i===0?" active":"");
+    s.style.background=c; s.onclick=()=>{ penColor=c; [...box.children].forEach(x=>x.classList.remove("active")); s.classList.add("active"); };
+    box.appendChild(s);
+  });
+}
+buildSwatches();
+
+function sizeAnno(){
+  const r=annoLayer.getBoundingClientRect();
+  const S=2, w=Math.max(1,r.width), h=Math.max(1,r.height);
+  if(annoCanvas._w===w && annoCanvas._h===h) return;
+  // preserve current drawing on resize
+  const prev=(annoCanvas.width&&annoCanvas.height)?actx.getImageData(0,0,annoCanvas.width,annoCanvas.height):null;
+  annoCanvas.width=w*S; annoCanvas.height=h*S; annoCanvas._w=w; annoCanvas._h=h;
+  actx.setTransform(S,0,0,S,0,0);
+  if(prev){ try{ actx.putImageData(prev,0,0);}catch(e){} }
+}
+function pushUndo(){
+  try{ undoStack.push(actx.getImageData(0,0,annoCanvas.width,annoCanvas.height)); if(undoStack.length>25) undoStack.shift(); }catch(e){}
+}
+function annoPos(e){
+  const r=annoCanvas.getBoundingClientRect();
+  const p=(e.touches&&e.touches[0])||e;
+  return {x:p.clientX-r.left, y:p.clientY-r.top};
+}
+function startDraw(e){
+  if(!annoOn) return;
+  if(tool==="text"){ addText(annoPos(e)); return; }
+  e.preventDefault(); drawing=true; pushUndo();
+  const {x,y}=annoPos(e);
+  actx.beginPath(); actx.moveTo(x,y);
+  actx.lineCap="round"; actx.lineJoin="round";
+  actx.strokeStyle=penColor; actx.lineWidth=penSize;
+  actx.globalCompositeOperation = tool==="erase" ? "destination-out" : "source-over";
+  if(tool==="erase") actx.lineWidth=penSize*4;
+}
+function moveDraw(e){
+  if(!drawing) return; e.preventDefault();
+  const {x,y}=annoPos(e); actx.lineTo(x,y); actx.stroke();
+}
+function endDraw(){ drawing=false; }
+annoCanvas.addEventListener("mousedown",startDraw);
+annoCanvas.addEventListener("mousemove",moveDraw);
+window.addEventListener("mouseup",endDraw);
+annoCanvas.addEventListener("touchstart",startDraw,{passive:false});
+annoCanvas.addEventListener("touchmove",moveDraw,{passive:false});
+annoCanvas.addEventListener("touchend",endDraw);
+
+function addText(pos){
+  const d=document.createElement("div");
+  d.className="annoText"; d.contentEditable="true";
+  d.style.left=pos.x+"px"; d.style.top=pos.y+"px"; d.style.color=penColor;
+  d.style.fontSize=(12+penSize*2)+"px";
+  annoLayer.appendChild(d);
+  makeDraggable(d);
+  setTimeout(()=>d.focus(),10);
+}
+function makeDraggable(d){
+  let sx,sy,ox,oy,dragging=false;
+  d.addEventListener("mousedown",e=>{
+    if(document.activeElement===d) return;   // editing
+    dragging=true; sx=e.clientX; sy=e.clientY; ox=parseFloat(d.style.left); oy=parseFloat(d.style.top); e.preventDefault();
+    const mv=ev=>{ if(!dragging)return; d.style.left=(ox+ev.clientX-sx)+"px"; d.style.top=(oy+ev.clientY-sy)+"px"; };
+    const up=()=>{ dragging=false; document.removeEventListener("mousemove",mv); document.removeEventListener("mouseup",up); };
+    document.addEventListener("mousemove",mv); document.addEventListener("mouseup",up);
+  });
+  d.addEventListener("dblclick",()=>d.focus());
+}
+function setTool(t){
+  tool=t;
+  document.querySelectorAll("#annoBar .atool").forEach(b=>b.classList.toggle("active",b.dataset.tool===t));
+  annoLayer.style.cursor = t==="text" ? "text" : "crosshair";
+}
+document.querySelectorAll("#annoBar .atool").forEach(b=> b.onclick=()=>setTool(b.dataset.tool));
+$("penSize").addEventListener("input",e=>penSize=parseInt(e.target.value,10));
+$("annoUndo").onclick=()=>{ const s=undoStack.pop(); if(s){ actx.save(); actx.setTransform(1,0,0,1,0,0); actx.putImageData(s,0,0); actx.restore(); } };
+$("annoClear").onclick=()=>{ pushUndo(); actx.save(); actx.setTransform(1,0,0,1,0,0); actx.clearRect(0,0,annoCanvas.width,annoCanvas.height); actx.restore(); annoLayer.querySelectorAll(".annoText").forEach(t=>t.remove()); };
+$("annoShot").onclick=saveScreenshot;
+
+function toggleAnno(on){
+  annoOn = on!==undefined ? on : !annoOn;
+  $("annoBar").classList.toggle("on",annoOn);
+  annoLayer.classList.toggle("on",annoOn);
+  $("annoBtn").classList.toggle("primary",annoOn);
+  document.body.classList.toggle("annotating",annoOn);
+  // while annotating, the overlay (pointer-events:auto) sits above the book and blocks flipping
+  if(annoOn){ sizeAnno(); toast("✏️ Σχεδίασε πάνω στη σελίδα. «Τέλος» για επιστροφή."); }
+  setTimeout(refit,50);
+}
+$("annoBtn").onclick=()=>toggleAnno();
+$("annoDone").onclick=()=>toggleAnno(false);
+window.addEventListener("orientationchange",()=>setTimeout(refit,300));
+
+/* ================= Music player ================= */
+const audio=$("audio");
+let tracks=[];        // {name, url, isStream}
+let curTrack=-1;
+
+// Ελληνικοί σταθμοί ανά είδος — ΟΛΟΙ https (ελεγμένοι) ώστε να παίζουν και σε https host (tiiny.host) χωρίς mixed-content block.
+const PRESETS=[
+  {cat:"⚽ Σπορ", items:[
+    {name:"ΕΡΑ ΣΠΟΡ",     url:"https://radiostreaming.ert.gr/ert-erasport"},
+    {name:"Sport FM 94.6", url:"https://sportfm.live24.gr/sportfm7712"},
+    {name:"Metropolis 95.5",url:"https://metropolis.live24.gr/metropolis955thess"},
+  ]},
+  {cat:"🎸 Ελληνικό Ροκ", items:[
+    {name:"Zeppelin 106.7",url:"https://radiostreaming.ert.gr/ert-zeppelin"},
+    {name:"Rock FM 96.9",  url:"https://az10.yesstreaming.net:8060/radio.mp3"},
+    {name:"Imagine 89.7",  url:"https://imagine897.radioca.st/stream"},
+    {name:"Red 96.3",      url:"https://netradio.live24.gr/red9630"},
+    {name:"1055 Rock",     url:"https://radio.1055rock.gr:31056/live"},
+    {name:"Rebel 105.2",   url:"https://netradio.live24.gr/rebel1052"},
+  ]},
+  {cat:"🤘 Ξένο Ροκ", items:[
+    {name:"Arrow Classic Rock", url:"https://stream.player.arrow.nl/arrowcr"},
+    {name:"0N Classic Rock",    url:"https://0n-classicrock.radionetz.de/0n-classicrock.mp3"},
+    {name:"Pink Floyd",         url:"https://streaming.exclusive.radio/er/pinkfloyd/icecast.audio"},
+    {name:"Led Zeppelin",       url:"https://streaming.exclusive.radio/er-app/ledzeppelin/icecast.audio"},
+  ]},
+  {cat:"🎧 Ποπ / Χιτ", items:[
+    {name:"Sfera 102.2",   url:"https://sfera.live24.gr/sfera4132"},
+    {name:"Love 97.5",     url:"https://netradio.live24.gr/loveradio-1000"},
+    {name:"Easy 97.2",     url:"https://stream.radiojar.com/cthtwxk5yvduv.mp3"},
+  ]},
+  {cat:"🎼 Ελληνικό Έντεχνο", items:[
+    {name:"ΕΡΤ Κόσμος",    url:"https://radiostreaming.ert.gr/ert-kosmos"},
+    {name:"ΕΡΤ Δεύτερο",   url:"https://radiostreaming.ert.gr/ert-deftero"},
+    {name:"ΕΡΤ Τρίτο",     url:"https://radiostreaming.ert.gr/ert-trito"},
+    {name:"Ellinikos 93.2",url:"https://netradio.live24.gr/orange9320"},
+    {name:"Mousikos 98.6", url:"https://netradio.live24.gr/mousikos986"},
+    {name:"Velvet 96.8",   url:"https://metromedia.live24.gr/velvet968thess"},
+  ]},
+  {cat:"🎶 Ελληνικό Λαϊκό", items:[
+    {name:"ΕΡΤ Λαϊκά",     url:"https://radiostreaming.ert.gr/ert-talaika"},
+    {name:"Derti 98.6",    url:"https://derti.live24.gr/derty1000"},
+    {name:"Derti 105.7",   url:"https://n06.radiojar.com/tzcb5k453quvv"},
+    {name:"Laikos FM",     url:"https://netradio.live24.gr/laikos876"},
+    {name:"Λάμψη 88.6",    url:"https://s6.onweb.gr:8036/stream?type=http"},
+  ]},
+  {cat:"🎷 Τζαζ", items:[
+    {name:"TSF Jazz",           url:"https://tsfjazz.ice.infomaniak.ch/tsfjazz-high.mp3"},
+    {name:"WALM Jazz",          url:"https://icecast.walmradio.com:8443/jazz"},
+    {name:"WALM Classic Vinyl", url:"https://icecast.walmradio.com:8443/classic"},
+    {name:"Smooth Jazz",        url:"https://live.radioart.com/fSmooth_jazz.mp3"},
+    {name:"Jazz Ballads",       url:"https://live.radioart.com/fJazz_ballads.mp3"},
+  ]},
+  {cat:"🎺 Μπλουζ", items:[
+    {name:"181 True Blues", url:"https://listen.181fm.com/181-blues_128k.mp3"},
+  ]},
+  {cat:"🤠 Country", items:[
+    {name:"181 Highway",        url:"https://listen.181fm.com/181-highway_128k.mp3"},
+    {name:"181 Kickin' Country",url:"https://listen.181fm.com/181-kickincountry_128k.mp3"},
+  ]},
+  {cat:"📰 Ενημέρωση", items:[
+    {name:"ΕΡΤ Πρώτο",     url:"https://radiostreaming.ert.gr/ert-proto"},
+    {name:"Real FM 97.8",  url:"https://netradio.live24.gr/realfm"},
+  ]},
+];
+
+// hidden preset stations (removed by the user), saved in localStorage
+function getHidden(){ try{ return JSON.parse(localStorage.getItem("biblio_hidden")||"[]"); }catch(e){ return []; } }
+function setHidden(a){ localStorage.setItem("biblio_hidden", JSON.stringify(a)); }
+let manageMode=false;
+function renderPresets(){
+  const box=$("presets"); box.innerHTML="";
+  const hidden=getHidden();
+  PRESETS.forEach(group=>{
+    const items=group.items.filter(p=>!hidden.includes(p.url));
+    if(!items.length) return;                       // κρύψε άδεια κατηγορία
+    const h=document.createElement("div"); h.className="pcat"; h.textContent=group.cat; box.appendChild(h);
+    const row=document.createElement("div"); row.className="prow";
+    items.forEach(p=>{
+      const b=document.createElement("button"); b.className="preset";
+      const nm=document.createElement("span"); nm.textContent=p.name; b.appendChild(nm);
+      const x=document.createElement("span"); x.className="prm"; x.textContent="✕"; b.appendChild(x);
+      b.onclick=()=>{
+        if(manageMode){ const hd=getHidden(); if(!hd.includes(p.url)){ hd.push(p.url); setHidden(hd); } renderPresets(); updateRestore(); toast("Κρύφτηκε: "+p.name); }
+        else { $("radioUrl").value=p.url; playStream(p.url, p.name); }
+      };
+      row.appendChild(b);
+    });
+    box.appendChild(row);
+  });
+  box.classList.toggle("manage", manageMode);
+}
+function updateRestore(){ const n=getHidden().length; $("restoreBtn").style.display = n?"inline-flex":"none"; $("restoreBtn").textContent="↺ Επαναφορά ("+n+")"; }
+$("manageBtn").onclick=function(){
+  manageMode=!manageMode;
+  this.classList.toggle("on",manageMode);
+  this.textContent=manageMode?"✓ Τέλος":"✏️ Διαχείριση";
+  renderPresets();
+  if(manageMode) toast("Πάτα σε σταθμό για να τον κρύψεις.");
+};
+$("restoreBtn").onclick=()=>{ setHidden([]); renderPresets(); updateRestore(); toast("Επαναφέρθηκαν όλοι οι σταθμοί."); };
+renderPresets(); updateRestore();
+
+/* ----- custom (user) stations: add / remove, saved in localStorage ----- */
+function getCustom(){ try{ return JSON.parse(localStorage.getItem("biblio_stations")||"[]"); }catch(e){ return []; } }
+function setCustom(a){ localStorage.setItem("biblio_stations", JSON.stringify(a)); renderCustom(); }
+function renderCustom(){
+  const list=getCustom(), wrap=$("customWrap"), box=$("customStations");
+  wrap.style.display = list.length ? "block":"none";
+  box.innerHTML="";
+  list.forEach((s,i)=>{
+    const el=document.createElement("span"); el.className="cst";
+    el.innerHTML='<span class="nm">'+escapeHtml(s.name)+'</span><span class="rm" title="Αφαίρεση">✕</span>';
+    el.querySelector(".nm").onclick=()=>{ $("radioUrl").value=s.url; playStream(s.url,s.name); };
+    el.querySelector(".rm").onclick=()=>{ const a=getCustom(); a.splice(i,1); setCustom(a); toast("Αφαιρέθηκε ο σταθμός."); };
+    box.appendChild(el);
+  });
+}
+function addStation(){
+  const url=$("radioUrl").value.trim();
+  let name=$("newStName").value.trim();
+  if(!url){ toast("Βάλε πρώτα το URL του σταθμού στο πεδίο πάνω."); return; }
+  if(!name) name=url.replace(/^https?:\/\//,"").slice(0,28);
+  const a=getCustom();
+  if(a.some(s=>s.url===url)){ toast("Υπάρχει ήδη."); return; }
+  a.push({name,url}); setCustom(a);
+  $("newStName").value="";
+  toast("⭐ Προστέθηκε: "+name);
+}
+$("addStation").onclick=addStation;
+renderCustom();
+
+function renderPlaylist(){
+  const ul=$("playlist"); ul.innerHTML="";
+  tracks.forEach((t,i)=>{
+    const li=document.createElement("li");
+    li.className=(i===curTrack?"active":"");
+    li.innerHTML='<span class="i">'+(t.isStream?"📻":"🎵")+'</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escapeHtml(t.name)+'</span>';
+    li.onclick=()=>playIndex(i);
+    ul.appendChild(li);
+  });
+}
+function showNow(){
+  $("nowBox").style.display = curTrack>=0 ? "block":"none";
+  if(curTrack>=0){
+    $("nowTitle").textContent=tracks[curTrack].name;
+    $("nowSub").textContent=tracks[curTrack].isStream?"Διαδικτυακός σταθμός":"Τοπικό αρχείο";
+  }
+}
+function playIndex(i){
+  if(i<0||i>=tracks.length) return;
+  curTrack=i;
+  audio.src=tracks[i].url;
+  audio.play().catch(e=>toast("Αδυναμία αναπαραγωγής: "+(e.message||e)));
+  renderPlaylist(); showNow();
+}
+function playStream(url,label){
+  if(!url) return;
+  const existing=tracks.findIndex(t=>t.url===url);
+  if(existing>=0){ playIndex(existing); return; }
+  tracks.push({name:label||url.replace(/^https?:\/\//,"").slice(0,40),url,isStream:true});
+  playIndex(tracks.length-1);
+}
+function playFromLocal(files){
+  [...files].forEach(f=> tracks.push({name:f.name.replace(/\.[^.]+$/,""), url:URL.createObjectURL(f), isStream:false}));
+  renderPlaylist();
+  if(curTrack<0) playIndex(tracks.length-files.length);
+}
+
+$("musicBtn").onclick=()=>$("musicPanel").classList.toggle("on");
+$("musicClose").onclick=()=>$("musicPanel").classList.remove("on");
+$("radioPlay").onclick=()=>playStream($("radioUrl").value.trim());
+$("radioUrl").addEventListener("keydown",e=>{ if(e.key==="Enter") playStream($("radioUrl").value.trim()); });
+$("audioFiles").addEventListener("change",e=>{ playFromLocal(e.target.files); e.target.value=""; });
+$("mPlay").onclick=()=>{ if(audio.paused){ if(!audio.src&&tracks.length) playIndex(0); else audio.play(); } else audio.pause(); };
+$("mNext").onclick=()=>playIndex((curTrack+1)%Math.max(tracks.length,1));
+$("mPrev").onclick=()=>playIndex((curTrack-1+tracks.length)%Math.max(tracks.length,1));
+$("mVol").addEventListener("input",e=>{ audio.volume=parseFloat(e.target.value); });
+audio.volume=0.8;
+audio.addEventListener("play",()=>$("mPlay").textContent="⏸");
+audio.addEventListener("pause",()=>$("mPlay").textContent="▶");
+audio.addEventListener("ended",()=>{ if(!tracks[curTrack]?.isStream && tracks.length>1) $("mNext").onclick(); });
+audio.addEventListener("error",()=>{ if(tracks[curTrack]) toast("Σφάλμα ροής/αρχείου: "+tracks[curTrack].name); });
+
+/* =====================================================================
+   LIBRARY (IndexedDB) · PROGRESS · BOOKMARKS · PAGE THEME · TTS · SAVE ANNOTATIONS
+   ===================================================================== */
+let currentFile=null, currentBookId=null, book=null;
+let bookmarks=[], annos={}, pageTheme="day", annoPageIdx=null, saveT=null;
+
+/* ---------- IndexedDB ---------- */
+let _db=null;
+function idb(){ return new Promise((res,rej)=>{ if(_db) return res(_db);
+  const rq=indexedDB.open("biblioReader",1);
+  rq.onupgradeneeded=e=>{ const d=e.target.result; if(!d.objectStoreNames.contains("books")) d.createObjectStore("books",{keyPath:"id"}); };
+  rq.onsuccess=e=>{ _db=e.target.result; res(_db); };
+  rq.onerror=()=>rej(rq.error);
+}); }
+async function dbPut(rec){ try{ const d=await idb(); return new Promise((res,rej)=>{ const t=d.transaction("books","readwrite"); t.objectStore("books").put(rec); t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); }); }catch(e){} }
+async function dbGet(id){ try{ const d=await idb(); return new Promise(res=>{ const r=d.transaction("books").objectStore("books").get(id); r.onsuccess=()=>res(r.result||null); r.onerror=()=>res(null); }); }catch(e){ return null; } }
+async function dbAll(){ try{ const d=await idb(); return new Promise(res=>{ const r=d.transaction("books").objectStore("books").getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>res([]); }); }catch(e){ return []; } }
+async function dbDel(id){ try{ const d=await idb(); return new Promise(res=>{ const t=d.transaction("books","readwrite"); t.objectStore("books").delete(id); t.oncomplete=()=>res(); }); }catch(e){} }
+
+function scheduleSave(){ clearTimeout(saveT); saveT=setTimeout(()=>{ if(book) dbPut(book); },700); }
+
+async function afterOpen(){
+  if(!currentFile) return;
+  const now=Date.now();
+  let rec=await dbGet(currentBookId);
+  if(!rec){
+    rec={ id:currentBookId, name:currentFile.name, type:(currentFile.name.split(".").pop()||"").toLowerCase(),
+      size:currentFile.size, blob:currentFile, pages:totalPages, lastPage:0,
+      addedAt:now, lastOpenedAt:now, bookmarks:[], annos:{}, theme:"day", cover:null };
+  } else {
+    rec.lastOpenedAt=now; rec.pages=totalPages; if(!rec.blob) rec.blob=currentFile;
+  }
+  book=rec;
+  bookmarks=rec.bookmarks||[]; annos=rec.annos||{};
+  setPageTheme(rec.theme||"day", true);
+  if(rec.pageMode==null) rec.pageMode = forceSingle?"single":"double";  // remember for new books
+  await dbPut(rec);
+  const target=rec.lastPage||0;
+  const wantSingle = rec.pageMode==="single";
+  if(wantSingle!==forceSingle){
+    // this book was saved in the other page mode → switch and rebuild (keeps the page)
+    forceSingle=wantSingle; updatePageModeBtn();
+    setTimeout(()=>{ rebuildFlip(target); renderBmk(); if(target>0) toast("↩️ Συνέχεια από σελ. "+(target+1)); }, 260);
+  } else {
+    setTimeout(()=>{
+      if(target>0 && flip){ try{ flip.turnToPage ? flip.turnToPage(target) : flip.flip(target); }catch(e){ try{flip.flip(target);}catch(_){}} }
+      annoPageIdx=currentIndices()[0]; loadAnnosForCurrent(); updateRibbon(); renderBmk();
+      if(target>0) toast("↩️ Συνέχεια από σελ. "+(target+1));
+    }, 260);
+  }
+  // cover thumbnail (best-effort, async) — save to THIS record even if user switched book
+  if(!rec.cover){ makeCover().then(c=>{ if(c){ rec.cover=c; dbPut(rec); if(book&&book.id===rec.id) book.cover=c; } }); }
+}
+
+function onPageChange(idx){
+  saveCurrentAnno();
+  loadAnnosForCurrent();
+  updateRibbon();
+  if(book){ book.lastPage=idx; scheduleSave(); }
+}
+
+async function makeCover(){
+  try{
+    const first=bookEl.querySelector('.pdfpage canvas') || bookEl.querySelector('.docpage');
+    if(!first) return null;
+    let src;
+    if(first.tagName==="CANVAS") src=first;
+    else src=await html2canvas(first,{scale:.6,backgroundColor:"#fff",logging:false});
+    const w=170, h=Math.max(1,Math.round(w*src.height/src.width));
+    const c=document.createElement("canvas"); c.width=w; c.height=h;
+    c.getContext("2d").drawImage(src,0,0,w,h);
+    return c.toDataURL("image/jpeg",.62);
+  }catch(e){ return null; }
+}
+
+/* ---------- Library panel ---------- */
+async function openLibrary(){
+  saveCurrentAnno();
+  const books=await dbAll();
+  books.sort((a,b)=>b.lastOpenedAt-a.lastOpenedAt);
+  const grid=$("libGrid"); grid.innerHTML="";
+  $("libEmpty").style.display=books.length?"none":"block";
+  const ICON={pdf:"📕",docx:"📘",doc:"📘",xlsx:"📗",xls:"📗",csv:"📗",epub:"📙"};
+  books.forEach(rec=>{
+    const icon=ICON[rec.type]||"📄";
+    const pct=rec.pages?Math.round(((rec.lastPage||0)+1)/rec.pages*100):0;
+    const card=document.createElement("div"); card.className="lcard";
+    card.innerHTML='<div class="cov"'+(rec.cover?(' style="background-image:url('+rec.cover+')"'):'')+'>'+(rec.cover?'':icon)+'</div>'+
+      '<button class="del" title="Διαγραφή">🗑</button>'+
+      ((rec.bookmarks&&rec.bookmarks.length)?('<span class="badge">🔖 '+rec.bookmarks.length+'</span>'):'')+
+      '<div class="meta"><div class="nm">'+escapeHtml(rec.name)+'</div>'+
+      '<div class="sub">'+icon+' σελ. '+((rec.lastPage||0)+1)+'/'+(rec.pages||'?')+'</div>'+
+      '<div class="prog"><i style="width:'+pct+'%"></i></div></div>';
+    card.onclick=e=>{ if(e.target.classList.contains("del")) return; reopenBook(rec); };
+    card.querySelector(".del").onclick=async e=>{ e.stopPropagation(); if(confirm("Διαγραφή «"+rec.name+"» από τη βιβλιοθήκη;")){ await dbDel(rec.id); openLibrary(); } };
+    grid.appendChild(card);
+  });
+  $("libPanel").classList.add("on");
+}
+async function reopenBook(rec){
+  $("libPanel").classList.remove("on");
+  if(!rec.blob){ toast("Το αρχείο δεν είναι αποθηκευμένο σε αυτή τη συσκευή."); return; }
+  const f=new File([rec.blob], rec.name, {type:rec.blob.type||""});
+  openFile(f);
+}
+$("libBtn").onclick=openLibrary;
+$("libClose").onclick=()=>$("libPanel").classList.remove("on");
+
+/* ---------- Bookmarks (ribbon) ---------- */
+function isBookmarked(){ return currentIndices().some(i=>bookmarks.includes(i)); }
+function updateRibbon(){ $("ribbon").classList.toggle("on", isBookmarked()); }
+function toggleBookmark(){
+  const idx=currentIndices()[0]; if(idx==null||!flip) return;
+  const p=bookmarks.indexOf(idx);
+  if(p>=0){ bookmarks.splice(p,1); toast("Αφαιρέθηκε ο σελιδοδείκτης."); }
+  else { bookmarks.push(idx); bookmarks.sort((a,b)=>a-b); toast("🔖 Σελιδοδείκτης στη σελ. "+(idx+1)); }
+  if(book){ book.bookmarks=bookmarks; dbPut(book); }
+  updateRibbon(); renderBmk();
+}
+function renderBmk(){
+  const box=$("bmkItems"); if(!box) return; box.innerHTML="";
+  $("bmkEmpty").style.display=bookmarks.length?"none":"block";
+  bookmarks.forEach(idx=>{
+    const it=document.createElement("div"); it.className="bmkItem";
+    it.innerHTML='<span class="pg">'+(idx+1)+'</span><span style="flex:1">Σελίδα '+(idx+1)+'</span><span class="rm" title="Αφαίρεση">✕</span>';
+    it.onclick=e=>{ if(e.target.classList.contains("rm")) return; try{flip.flip(idx);}catch(_){}; $("bmkPop").classList.remove("on"); };
+    it.querySelector(".rm").onclick=e=>{ e.stopPropagation(); const p=bookmarks.indexOf(idx); if(p>=0)bookmarks.splice(p,1); if(book){book.bookmarks=bookmarks;dbPut(book);} renderBmk(); updateRibbon(); };
+    box.appendChild(it);
+  });
+}
+$("bmkBtn").onclick=toggleBookmark;
+$("ribbon").onclick=()=>{ renderBmk(); $("bmkPop").classList.toggle("on"); };
+$("bmkClose").onclick=()=>$("bmkPop").classList.remove("on");
+
+/* ---------- Page theme: day / sepia / night ---------- */
+const THEMES=["day","sepia","night"], THEME_ICON={day:"☀️",sepia:"🌤️",night:"🌙"}, THEME_NAME={day:"Ημέρα",sepia:"Σέπια",night:"Νύχτα"};
+function setPageTheme(t,silent){
+  pageTheme=t; bookEl.classList.remove("sepia","night"); if(t!=="day") bookEl.classList.add(t);
+  $("themeBtn").textContent=THEME_ICON[t];
+  if(book){ book.theme=t; dbPut(book); }
+  if(!silent) toast("Σελίδα: "+THEME_NAME[t]);
+}
+$("themeBtn").onclick=()=>{ setPageTheme(THEMES[(THEMES.indexOf(pageTheme)+1)%3]); };
+
+/* ---------- Save annotations WITH the file (per page) ---------- */
+function clearOverlay(){
+  actx.save(); actx.setTransform(1,0,0,1,0,0); actx.clearRect(0,0,annoCanvas.width,annoCanvas.height); actx.restore();
+  annoLayer.querySelectorAll(".annoText").forEach(t=>t.remove());
+}
+function canvasHasInk(){
+  try{ const d=actx.getImageData(0,0,annoCanvas.width,annoCanvas.height).data; for(let i=3;i<d.length;i+=64){ if(d[i]!==0) return true; } }catch(e){}
+  return false;
+}
+function saveCurrentAnno(){
+  if(annoPageIdx==null || !book) return;
+  const r=annoLayer.getBoundingClientRect();
+  const texts=[...annoLayer.querySelectorAll(".annoText")].map(d=>({
+    xf:parseFloat(d.style.left)/r.width, yf:parseFloat(d.style.top)/r.height,
+    text:d.innerText, color:d.style.color, size:d.style.fontSize }));
+  const ink=canvasHasInk();
+  if(!ink && texts.length===0){ if(annos[annoPageIdx]){ delete annos[annoPageIdx]; book.annos=annos; dbPut(book); } return; }
+  annos[annoPageIdx]={ img: ink?annoCanvas.toDataURL("image/png"):null, texts };
+  book.annos=annos; dbPut(book);
+}
+function loadAnnosForCurrent(){
+  const idx=currentIndices()[0]; if(idx==null) return;
+  clearOverlay(); annoPageIdx=idx;
+  const data=annos[idx]; if(!data) return;
+  sizeAnno();
+  const r=annoLayer.getBoundingClientRect();
+  if(data.img){ const im=new Image(); im.onload=()=>{ actx.save(); actx.setTransform(1,0,0,1,0,0); actx.drawImage(im,0,0,annoCanvas.width,annoCanvas.height); actx.restore(); }; im.src=data.img; }
+  (data.texts||[]).forEach(t=>{ const d=document.createElement("div"); d.className="annoText"; d.contentEditable="true";
+    d.style.left=(t.xf*r.width)+"px"; d.style.top=(t.yf*r.height)+"px"; d.style.color=t.color; d.style.fontSize=t.size; d.innerText=t.text;
+    annoLayer.appendChild(d); makeDraggable(d); });
+}
+
+/* ---------- Text narration (TTS) ---------- */
+let ttsVoices=[], ttsState="idle"; // idle | playing | paused
+function loadVoices(){
+  if(!("speechSynthesis" in window)) return;
+  ttsVoices=speechSynthesis.getVoices().slice().sort((a,b)=>(b.lang.startsWith("el")-a.lang.startsWith("el")));
+  const sel=$("ttsVoice"); if(!sel) return; const keep=sel.value; sel.innerHTML="";
+  ttsVoices.forEach((v,i)=>{ const o=document.createElement("option"); o.value=i; o.textContent=v.name+" · "+v.lang; sel.appendChild(o); });
+  if(keep) sel.value=keep;
+}
+if("speechSynthesis" in window){ speechSynthesis.onvoiceschanged=loadVoices; loadVoices(); }
+async function ttsSpeak(){
+  if(!("speechSynthesis" in window)){ toast("Η αφήγηση δεν υποστηρίζεται σε αυτόν τον browser."); return; }
+  const text=await currentPageText();
+  if(!text){ toast("Δεν υπάρχει κείμενο για αφήγηση σε αυτή τη σελίδα."); return; }
+  speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text);
+  const vi=parseInt($("ttsVoice").value,10);
+  if(ttsVoices[vi]){ u.voice=ttsVoices[vi]; u.lang=ttsVoices[vi].lang; } else u.lang="el-GR";
+  u.rate=parseFloat($("ttsRate").value)||1;
+  u.onend=()=>{
+    ttsState="idle"; $("ttsPlay").textContent="▶";
+    if($("ttsAuto").checked && flip){
+      const idxs=currentIndices(); const nextStart=idxs[idxs.length-1]+1;
+      if(nextStart<totalPages){ flip.flipNext(); setTimeout(ttsSpeak,750); }
+    }
+  };
+  ttsState="playing"; $("ttsPlay").textContent="⏸";
+  speechSynthesis.speak(u);
+}
+$("ttsBtn").onclick=()=>{ const on=$("ttsBar").classList.toggle("on"); if(on) loadVoices(); else { speechSynthesis.cancel(); ttsState="idle"; $("ttsPlay").textContent="▶"; } };
+$("ttsClose").onclick=()=>{ $("ttsBar").classList.remove("on"); speechSynthesis.cancel(); ttsState="idle"; $("ttsPlay").textContent="▶"; };
+$("ttsPlay").onclick=()=>{
+  if(!("speechSynthesis" in window)) return;
+  if(ttsState==="playing"){ speechSynthesis.pause(); ttsState="paused"; $("ttsPlay").textContent="▶"; }
+  else if(ttsState==="paused"){ speechSynthesis.resume(); ttsState="playing"; $("ttsPlay").textContent="⏸"; }
+  else ttsSpeak();
+};
+$("ttsStop").onclick=()=>{ speechSynthesis.cancel(); ttsState="idle"; $("ttsPlay").textContent="▶"; };
+
+/* persist annotations from the annotation toolbar */
+$("annoDone").addEventListener("click",()=>saveCurrentAnno());
+$("annoClear").addEventListener("click",()=>{ setTimeout(saveCurrentAnno,20); });
+window.addEventListener("beforeunload",()=>{ saveCurrentAnno(); if(book) dbPut(book); });
+
+/* ================= PWA: install + offline service worker ================= */
+// Register the service worker (works on https or localhost; silently skipped on file://)
+if("serviceWorker" in navigator){
+  window.addEventListener("load",()=>{
+    navigator.serviceWorker.register("sw.js").catch(()=>{ /* offline cache not available in this context */ });
+  });
+}
+// "Add to home screen" prompt (Android/desktop Chrome)
+let deferredPrompt=null;
+window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredPrompt=e; $("installBtn").style.display="inline-flex"; });
+$("installBtn").onclick=async()=>{
+  if(!deferredPrompt){ toast("Στο κινητό: μενού browser → «Προσθήκη στην αρχική οθόνη»."); return; }
+  deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; $("installBtn").style.display="none";
+};
+window.addEventListener("appinstalled",()=>{ $("installBtn").style.display="none"; toast("✅ Εγκαταστάθηκε η εφαρμογή."); });
+// iOS Safari has no beforeinstallprompt — show a hint button when not already standalone
+if(/iP(hone|ad|od)/.test(navigator.userAgent) && !navigator.standalone){
+  $("installBtn").style.display="inline-flex";
+}
+</script>
+</body>
+</html>
