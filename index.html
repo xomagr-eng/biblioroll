@@ -108,6 +108,17 @@
   #panLayer{position:absolute;inset:0;z-index:21;display:none;touch-action:none;cursor:grab}
   #panLayer.on{display:block}
   #panLayer.grabbing{cursor:grabbing}
+  /* floating page nav — bottom corners, faint so it doesn't disturb reading */
+  #floatNav{display:none}
+  #floatNav.on{display:block}
+  #floatNav button{position:absolute;bottom:16px;width:52px;height:52px;border-radius:50%;
+    border:1px solid var(--line);background:rgba(27,31,38,.45);color:var(--txt);font-size:26px;line-height:1;
+    cursor:pointer;z-index:25;opacity:.38;transition:opacity .15s,background .15s,transform .1s;
+    display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);-webkit-tap-highlight-color:transparent}
+  #floatNav button:hover{opacity:1;background:var(--accent);border-color:var(--accent);color:#fff}
+  #floatNav button:active{transform:scale(.9);opacity:1}
+  #fnPrev{left:16px}  #fnNext{right:16px}
+  @media(max-width:640px){ #floatNav button{width:46px;height:46px;font-size:22px;bottom:12px;opacity:.5} #fnPrev{left:10px} #fnNext{right:10px} }
   .page{overflow:hidden}
   /* pdf pages (lazy rendered canvas) */
   .pdfpage{background:#fff;overflow:hidden}
@@ -424,6 +435,12 @@
 
 <!-- pan overlay (active when zoomed) -->
 <div id="panLayer"></div>
+
+<!-- floating page navigation (bottom corners, non-intrusive) -->
+<div id="floatNav">
+  <button id="fnPrev" title="Προηγούμενη σελίδα (←)">‹</button>
+  <button id="fnNext" title="Επόμενη σελίδα (→)">›</button>
+</div>
 
 <!-- annotation overlay (screen-space, over the current view) -->
 <div id="annoLayer"><canvas id="annoCanvas"></canvas></div>
@@ -1046,6 +1063,7 @@ function finishOpen(n){
   $("pageInput").value=1;
   $("navGrp").style.display="flex";
   $("toolGrp").style.display="flex";
+  $("floatNav").classList.add("on");
   $("hint").classList.add("on");
   hideLoading();
   setCurrent(0);
@@ -1137,6 +1155,8 @@ $("file").addEventListener("change",e=>{ const f=e.target.files[0]; e.target.val
 
 $("prev").onclick=()=> flip&&flip.flipPrev();
 $("next").onclick=()=> flip&&flip.flipNext();
+$("fnPrev").onclick=()=> flip&&flip.flipPrev();
+$("fnNext").onclick=()=> flip&&flip.flipNext();
 $("first").onclick=()=> flip&&flip.flip(0);
 $("last").onclick =()=> flip&&flip.flip(totalPages-1);
 $("pageInput").addEventListener("change",e=>{
@@ -1751,17 +1771,20 @@ async function afterOpen(){
   setPageTheme(rec.theme||"day", true);
   if(rec.pageMode==null) rec.pageMode = forceSingle?"single":"double";  // remember for new books
   await dbPut(rec);
-  const target=rec.lastPage||0;
+  // reopen at the bookmark (if one was set), otherwise at the last read page
+  const atBookmark = (rec.bookmarkResume!=null && (rec.bookmarks||[]).includes(rec.bookmarkResume));
+  const target = atBookmark ? rec.bookmarkResume : (rec.lastPage||0);
+  const resumeToast = ()=>{ if(atBookmark) toast("🔖 Άνοιγμα στον σελιδοδείκτη — σελ. "+(target+1)); else if(target>0) toast("↩️ Συνέχεια από σελ. "+(target+1)); };
   const wantSingle = rec.pageMode==="single";
   if(wantSingle!==forceSingle){
     // this book was saved in the other page mode → switch and rebuild (keeps the page)
     forceSingle=wantSingle; updatePageModeBtn();
-    setTimeout(()=>{ rebuildFlip(target); renderBmk(); if(target>0) toast("↩️ Συνέχεια από σελ. "+(target+1)); }, 260);
+    setTimeout(()=>{ rebuildFlip(target); renderBmk(); resumeToast(); }, 260);
   } else {
     setTimeout(()=>{
       if(target>0 && flip){ try{ flip.turnToPage ? flip.turnToPage(target) : flip.flip(target); }catch(e){ try{flip.flip(target);}catch(_){}} }
       annoPageIdx=currentIndices()[0]; loadAnnosForCurrent(); updateRibbon(); renderBmk();
-      if(target>0) toast("↩️ Συνέχεια από σελ. "+(target+1));
+      resumeToast();
     }, 260);
   }
   // cover thumbnail (best-effort, async) — save to THIS record even if user switched book
@@ -1828,8 +1851,13 @@ function updateRibbon(){ $("ribbon").classList.toggle("on", isBookmarked()); }
 function toggleBookmark(){
   const idx=currentIndices()[0]; if(idx==null||!flip) return;
   const p=bookmarks.indexOf(idx);
-  if(p>=0){ bookmarks.splice(p,1); toast("Αφαιρέθηκε ο σελιδοδείκτης."); }
-  else { bookmarks.push(idx); bookmarks.sort((a,b)=>a-b); toast("🔖 Σελιδοδείκτης στη σελ. "+(idx+1)); }
+  if(p>=0){
+    bookmarks.splice(p,1); toast("Αφαιρέθηκε ο σελιδοδείκτης.");
+    if(book && book.bookmarkResume===idx) book.bookmarkResume = bookmarks.length ? bookmarks[bookmarks.length-1] : null;
+  } else {
+    bookmarks.push(idx); bookmarks.sort((a,b)=>a-b); toast("🔖 Σελιδοδείκτης στη σελ. "+(idx+1)+" — θα ανοίγει εδώ");
+    if(book) book.bookmarkResume=idx;   // reopen at this bookmark
+  }
   if(book){ book.bookmarks=bookmarks; dbPut(book); }
   updateRibbon(); renderBmk();
 }
