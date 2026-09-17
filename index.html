@@ -229,11 +229,14 @@
   #presets.manage .preset{border-color:var(--accent)}
   #presets.manage .preset .prm{display:inline-block}
   #manageBtn.on{background:var(--accent);border-color:var(--accent);color:#fff}
-  #playlist{list-style:none;margin:8px 0 0;padding:0;max-height:190px;overflow:auto}
-  #playlist li{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:8px;font-size:13px;cursor:pointer;color:var(--muted)}
-  #playlist li:hover{background:var(--panel2)}
+  #playlist,#savedLists{list-style:none;margin:8px 0 0;padding:0;max-height:190px;overflow:auto}
+  #playlist li,#savedLists li{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:8px;font-size:13px;cursor:pointer;color:var(--muted)}
+  #playlist li:hover,#savedLists li:hover{background:var(--panel2)}
   #playlist li.active{background:rgba(227,6,19,.16);color:#fff}
-  #playlist li .i{font-size:12px}
+  #playlist li .i,#savedLists li .i{font-size:12px}
+  .plcount{background:var(--panel);border:1px solid var(--line);border-radius:99px;font-size:11px;padding:1px 7px}
+  .pldel{color:var(--muted);padding:2px 6px;border-radius:6px}
+  .pldel:hover{background:var(--accent);color:#fff}
   .nowplaying{font-size:13px;color:var(--txt);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .nowsub{font-size:11px;color:var(--muted)}
   .mctrls{display:flex;align-items:center;gap:10px;justify-content:center;margin-top:6px}
@@ -486,6 +489,15 @@
     <label class="btn" for="audioFiles" style="width:100%;height:38px">📱 Επιλογή τραγουδιών</label>
     <input id="audioFiles" type="file" accept="audio/*" multiple hidden />
     <ul id="playlist"></ul>
+    <div class="mrow" id="savePlRow" style="display:none;margin-top:7px">
+      <input class="minput" id="plName" type="text" placeholder="Όνομα λίστας" />
+      <button class="btn primary" id="savePl" style="height:36px" title="Αποθήκευση λίστας">💾</button>
+    </div>
+  </div>
+
+  <div class="msec" id="savedWrap" style="display:none">
+    <div class="lbl">🎵 Οι λίστες μου</div>
+    <ul id="savedLists"></ul>
   </div>
 
   <div class="msec" id="nowBox" style="display:none">
@@ -1569,7 +1581,7 @@ function playIndex(i){
   curTrack=i;
   audio.src=tracks[i].url;
   audio.play().catch(e=>toast("Αδυναμία αναπαραγωγής: "+(e.message||e)));
-  renderPlaylist(); showNow();
+  renderPlaylist(); showNow(); setMediaSession(tracks[i]);
 }
 function playStream(url,label){
   if(!url) return;
@@ -1579,23 +1591,92 @@ function playStream(url,label){
   playIndex(tracks.length-1);
 }
 function playFromLocal(files){
-  [...files].forEach(f=> tracks.push({name:f.name.replace(/\.[^.]+$/,""), url:URL.createObjectURL(f), isStream:false}));
-  renderPlaylist();
+  [...files].forEach(f=> tracks.push({name:f.name.replace(/\.[^.]+$/,""), url:URL.createObjectURL(f), isStream:false, blob:f}));
+  renderPlaylist(); updateSaveRow();
   if(curTrack<0) playIndex(tracks.length-files.length);
 }
+function updateSaveRow(){ $("savePlRow").style.display = tracks.some(t=>!t.isStream) ? "flex" : "none"; }
 
-$("musicBtn").onclick=()=>$("musicPanel").classList.toggle("on");
+/* ---- MediaSession: lockscreen controls + background playback (mobile) ---- */
+function setMediaSession(t){
+  if(!("mediaSession" in navigator)) return;
+  try{
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: t.name || "ΒιβλιοRoll",
+      artist: t.isStream ? "Διαδικτυακός σταθμός" : "ΒιβλιοRoll",
+      album: "ΒιβλιοRoll",
+      artwork: [{src:"icons/icon-192.png",sizes:"192x192",type:"image/png"},
+                {src:"icons/icon-512.png",sizes:"512x512",type:"image/png"}]
+    });
+  }catch(e){}
+}
+if("mediaSession" in navigator){
+  const ms=navigator.mediaSession;
+  try{
+    ms.setActionHandler("play", ()=>audio.play());
+    ms.setActionHandler("pause",()=>audio.pause());
+    ms.setActionHandler("previoustrack",()=>$("mPrev").onclick());
+    ms.setActionHandler("nexttrack",()=>$("mNext").onclick());
+  }catch(e){}
+}
+
+/* ---- Saved playlists (songs kept in IndexedDB for later use) ---- */
+async function plAll(){ try{ const d=await idb(); return new Promise(res=>{ const r=d.transaction("playlists").objectStore("playlists").getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>res([]); }); }catch(e){ return []; } }
+async function plGet(id){ try{ const d=await idb(); return new Promise(res=>{ const r=d.transaction("playlists").objectStore("playlists").get(id); r.onsuccess=()=>res(r.result||null); r.onerror=()=>res(null); }); }catch(e){ return null; } }
+async function plPut(rec){ try{ const d=await idb(); return new Promise((res,rej)=>{ const t=d.transaction("playlists","readwrite"); t.objectStore("playlists").put(rec); t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); }); }catch(e){} }
+async function plDel(id){ try{ const d=await idb(); return new Promise(res=>{ const t=d.transaction("playlists","readwrite"); t.objectStore("playlists").delete(id); t.oncomplete=()=>res(); }); }catch(e){} }
+
+async function savePlaylist(){
+  const local=tracks.filter(t=>!t.isStream && t.blob);
+  if(!local.length){ toast("Διάλεξε πρώτα τραγούδια από τη συσκευή."); return; }
+  let name=$("plName").value.trim();
+  if(!name) name="Λίστα "+new Date().toLocaleDateString("el-GR");
+  const rec={ id:"pl_"+Date.now(), name, createdAt:Date.now(),
+    tracks: local.map(t=>({name:t.name, blob:t.blob})) };
+  await plPut(rec);
+  $("plName").value="";
+  renderSavedPlaylists();
+  toast("💾 Αποθηκεύτηκε η λίστα «"+name+"» ("+local.length+" τραγούδια)");
+}
+async function renderSavedPlaylists(){
+  const lists=await plAll();
+  lists.sort((a,b)=>b.createdAt-a.createdAt);
+  $("savedWrap").style.display = lists.length ? "block":"none";
+  const ul=$("savedLists"); ul.innerHTML="";
+  lists.forEach(pl=>{
+    const li=document.createElement("li");
+    li.innerHTML='<span class="i">🎶</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escapeHtml(pl.name)+'</span><span class="plcount">'+pl.tracks.length+'</span><span class="pldel" title="Διαγραφή">✕</span>';
+    li.querySelector(".pldel").onclick=async e=>{ e.stopPropagation(); if(confirm("Διαγραφή λίστας «"+pl.name+"»;")){ await plDel(pl.id); renderSavedPlaylists(); } };
+    li.onclick=e=>{ if(e.target.classList.contains("pldel"))return; loadPlaylist(pl.id); };
+    ul.appendChild(li);
+  });
+}
+async function loadPlaylist(id){
+  const pl=await plGet(id); if(!pl) return;
+  // free old local object URLs
+  tracks.forEach(t=>{ if(!t.isStream && t.url) try{URL.revokeObjectURL(t.url);}catch(e){} });
+  tracks = pl.tracks.map(t=>({name:t.name, url:URL.createObjectURL(t.blob), isStream:false, blob:t.blob}));
+  curTrack=-1;
+  renderPlaylist(); updateSaveRow();
+  playIndex(0);
+  toast("▶ Λίστα «"+pl.name+"» ("+pl.tracks.length+" τραγούδια)");
+}
+
+$("musicBtn").onclick=()=>{ const on=$("musicPanel").classList.toggle("on"); if(on){ renderSavedPlaylists(); updateSaveRow(); } };
 $("musicClose").onclick=()=>$("musicPanel").classList.remove("on");
 $("radioPlay").onclick=()=>playStream($("radioUrl").value.trim());
 $("radioUrl").addEventListener("keydown",e=>{ if(e.key==="Enter") playStream($("radioUrl").value.trim()); });
 $("audioFiles").addEventListener("change",e=>{ playFromLocal(e.target.files); e.target.value=""; });
+$("savePl").onclick=savePlaylist;
+$("plName").addEventListener("keydown",e=>{ if(e.key==="Enter") savePlaylist(); });
+renderSavedPlaylists();
 $("mPlay").onclick=()=>{ if(audio.paused){ if(!audio.src&&tracks.length) playIndex(0); else audio.play(); } else audio.pause(); };
 $("mNext").onclick=()=>playIndex((curTrack+1)%Math.max(tracks.length,1));
 $("mPrev").onclick=()=>playIndex((curTrack-1+tracks.length)%Math.max(tracks.length,1));
 $("mVol").addEventListener("input",e=>{ audio.volume=parseFloat(e.target.value); });
 audio.volume=0.8;
-audio.addEventListener("play",()=>$("mPlay").textContent="⏸");
-audio.addEventListener("pause",()=>$("mPlay").textContent="▶");
+audio.addEventListener("play",()=>{ $("mPlay").textContent="⏸"; if("mediaSession" in navigator) navigator.mediaSession.playbackState="playing"; });
+audio.addEventListener("pause",()=>{ $("mPlay").textContent="▶"; if("mediaSession" in navigator) navigator.mediaSession.playbackState="paused"; });
 audio.addEventListener("ended",()=>{ if(!tracks[curTrack]?.isStream && tracks.length>1) $("mNext").onclick(); });
 audio.addEventListener("error",()=>{ if(tracks[curTrack]) toast("Σφάλμα ροής/αρχείου: "+tracks[curTrack].name); });
 
@@ -1608,8 +1689,11 @@ let bookmarks=[], annos={}, pageTheme="day", annoPageIdx=null, saveT=null;
 /* ---------- IndexedDB ---------- */
 let _db=null;
 function idb(){ return new Promise((res,rej)=>{ if(_db) return res(_db);
-  const rq=indexedDB.open("biblioReader",1);
-  rq.onupgradeneeded=e=>{ const d=e.target.result; if(!d.objectStoreNames.contains("books")) d.createObjectStore("books",{keyPath:"id"}); };
+  const rq=indexedDB.open("biblioReader",2);
+  rq.onupgradeneeded=e=>{ const d=e.target.result;
+    if(!d.objectStoreNames.contains("books")) d.createObjectStore("books",{keyPath:"id"});
+    if(!d.objectStoreNames.contains("playlists")) d.createObjectStore("playlists",{keyPath:"id"});
+  };
   rq.onsuccess=e=>{ _db=e.target.result; res(_db); };
   rq.onerror=()=>rej(rq.error);
 }); }
