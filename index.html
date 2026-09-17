@@ -243,6 +243,9 @@
   .mbtn{width:42px;height:42px;border-radius:50%;border:1px solid var(--line);background:var(--panel2);color:var(--txt);
     font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center}
   .mbtn.play{width:52px;height:52px;background:var(--accent);border-color:var(--accent);color:#fff;font-size:20px}
+  .mbtn.sm{width:34px;height:34px;font-size:14px;position:relative}
+  .mbtn.sm.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .mbtn.sm .badge1{position:absolute;bottom:0;right:2px;font-size:8px;font-weight:800}
   .mbtn:active{transform:scale(.94)}
   .vol{display:flex;align-items:center;gap:8px;margin-top:10px}
   .vol input[type=range]{flex:1;accent-color:var(--accent)}
@@ -504,9 +507,11 @@
     <div class="nowplaying" id="nowTitle">—</div>
     <div class="nowsub" id="nowSub"></div>
     <div class="mctrls">
+      <button class="mbtn sm" id="shuffleBtn" title="Τυχαία σειρά">🔀</button>
       <button class="mbtn" id="mPrev" title="Προηγούμενο">⏮</button>
       <button class="mbtn play" id="mPlay" title="Play/Pause">▶</button>
       <button class="mbtn" id="mNext" title="Επόμενο">⏭</button>
+      <button class="mbtn sm" id="repeatBtn" title="Επανάληψη">🔁</button>
     </div>
     <div class="vol">🔉<input id="mVol" type="range" min="0" max="1" step="0.01" value="0.8" />🔊</div>
   </div>
@@ -1671,13 +1676,39 @@ $("savePl").onclick=savePlaylist;
 $("plName").addEventListener("keydown",e=>{ if(e.key==="Enter") savePlaylist(); });
 renderSavedPlaylists();
 $("mPlay").onclick=()=>{ if(audio.paused){ if(!audio.src&&tracks.length) playIndex(0); else audio.play(); } else audio.pause(); };
-$("mNext").onclick=()=>playIndex((curTrack+1)%Math.max(tracks.length,1));
-$("mPrev").onclick=()=>playIndex((curTrack-1+tracks.length)%Math.max(tracks.length,1));
+
+/* ---- shuffle & repeat ---- */
+let shuffle=false, repeatMode="off";  // off | all | one
+try{ shuffle = localStorage.getItem("biblio_shuffle")==="1"; repeatMode = localStorage.getItem("biblio_repeat")||"off"; }catch(e){}
+function nextIndex(dir){
+  const n=tracks.length; if(!n) return -1;
+  if(shuffle && n>1){ let r; do{ r=Math.floor(Math.random()*n); }while(r===curTrack); return r; }
+  return (curTrack+dir+n)%n;
+}
+function updateShuffleBtn(){ $("shuffleBtn").classList.toggle("on",shuffle); }
+function updateRepeatBtn(){
+  const b=$("repeatBtn");
+  b.classList.toggle("on", repeatMode!=="off");
+  b.textContent = repeatMode==="one" ? "🔂" : "🔁";
+  b.title = "Επανάληψη: "+({off:"Ανενεργή",all:"Όλα",one:"Ένα"}[repeatMode]);
+}
+$("shuffleBtn").onclick=()=>{ shuffle=!shuffle; try{localStorage.setItem("biblio_shuffle",shuffle?"1":"0");}catch(e){} updateShuffleBtn(); toast(shuffle?"🔀 Τυχαία σειρά: ΟΝ":"Τυχαία σειρά: OFF"); };
+$("repeatBtn").onclick=()=>{ repeatMode = repeatMode==="off"?"all":repeatMode==="all"?"one":"off"; try{localStorage.setItem("biblio_repeat",repeatMode);}catch(e){} updateRepeatBtn(); toast("🔁 Επανάληψη: "+({off:"ανενεργή",all:"όλα",one:"ένα τραγούδι"}[repeatMode])); };
+updateShuffleBtn(); updateRepeatBtn();
+
+$("mNext").onclick=()=>playIndex(nextIndex(1));
+$("mPrev").onclick=()=>playIndex(nextIndex(-1));
 $("mVol").addEventListener("input",e=>{ audio.volume=parseFloat(e.target.value); });
 audio.volume=0.8;
 audio.addEventListener("play",()=>{ $("mPlay").textContent="⏸"; if("mediaSession" in navigator) navigator.mediaSession.playbackState="playing"; });
 audio.addEventListener("pause",()=>{ $("mPlay").textContent="▶"; if("mediaSession" in navigator) navigator.mediaSession.playbackState="paused"; });
-audio.addEventListener("ended",()=>{ if(!tracks[curTrack]?.isStream && tracks.length>1) $("mNext").onclick(); });
+audio.addEventListener("ended",()=>{
+  if(tracks[curTrack]?.isStream) return;               // στα streams δεν τελειώνει
+  if(repeatMode==="one"){ playIndex(curTrack); return; } // επανάληψη ίδιου
+  const n=tracks.length; if(n===0) return;
+  if(!shuffle && repeatMode==="off" && curTrack>=n-1) return; // τέλος λίστας → σταμάτα
+  if(n>1 || shuffle) playIndex(nextIndex(1));
+});
 audio.addEventListener("error",()=>{ if(tracks[curTrack]) toast("Σφάλμα ροής/αρχείου: "+tracks[curTrack].name); });
 
 /* =====================================================================
