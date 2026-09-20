@@ -402,6 +402,7 @@
 
   <div class="grp" id="toolGrp" style="display:none">
     <button class="btn icon" id="pageMode" title="Μονή / διπλή σελίδα">📖</button>
+    <button class="btn icon" id="splitBtn" title="Χωρισμός σελίδας PDF (για σαρωμένα δισέλιδα)" style="display:none">✂️</button>
     <button class="btn icon" id="zoomOut" title="Σμίκρυνση">−</button>
     <span id="zoomLbl">100%</span>
     <button class="btn icon" id="zoomIn" title="Μεγέθυνση">+</button>
@@ -617,6 +618,8 @@ let pdfDoc=null, pdfRenderScale=1;
 const pdfRendered=new Set();
 let curRatio=0.707;    // page width/height of current document
 let forceSingle=false; // εμφάνιση μονής σελίδας αντί για δισέλιδο
+let splitPages=false;  // χωρισμός κάθε σελίδας PDF σε 2 (για σαρωμένα δισέλιδα)
+let pdfBaseRatio=0.707;// αναλογία πλήρους σελίδας PDF
 
 /* ================= helpers ================= */
 function showLoading(txt){ loadTxt.textContent=txt||"Φόρτωση…"; loadBar.style.width="0%"; loadingEl.classList.add("on"); }
@@ -706,44 +709,76 @@ async function openPDF(buf){
   const n = pdf.numPages;
   const p1 = await pdf.getPage(1);
   const vp1 = p1.getViewport({scale:1});
-  const ratio = vp1.width/vp1.height;
+  pdfBaseRatio = vp1.width/vp1.height;
   pdfRenderScale = Math.min(3, Math.max(1, 960/vp1.width)); // quality
   p1.cleanup();
 
-  destroyFlip();
-  // build lightweight placeholder pages (instant)
-  const baseH=760, baseW=Math.round(baseH*ratio);
-  for(let i=1;i<=n;i++){
-    const pg=document.createElement("div");
-    pg.className="page pdfpage"; pg.dataset.page=i;
-    pg.style.width=baseW+"px"; pg.style.height=baseH+"px"; pg.style.position="relative";
-    pg.innerHTML='<div class="ph">'+i+'</div>';
-    bookEl.appendChild(pg);
-  }
-  initFlip("html", ratio);
-  flip.loadFromHTML(bookEl.querySelectorAll(".page"));
-  flipExtra = idx => renderAround(idx);
+  splitPages=false;               // ξεκινά κανονικά· ο χρήστης πατά «Χωρισμός» αν χρειάζεται
+  curRatio = pdfBaseRatio;
+  pdfBuild(n);
   finishOpen(n);
   await renderAround(0);   // render the first spread immediately
 }
+// (ξανα)δημιουργεί placeholders + flip για `count` σελίδες αναγνώστη
+function pdfBuild(count){
+  destroyFlip();
+  const baseH=760, baseW=Math.max(60,Math.round(baseH*curRatio));
+  for(let i=0;i<count;i++){
+    const pg=document.createElement("div");
+    pg.className="page pdfpage"; pg.dataset.idx=i;
+    pg.style.width=baseW+"px"; pg.style.height=baseH+"px"; pg.style.position="relative";
+    pg.innerHTML='<div class="ph">'+(i+1)+'</div>';
+    bookEl.appendChild(pg);
+  }
+  initFlip("html", curRatio);
+  flip.loadFromHTML(bookEl.querySelectorAll(".page"));
+  flipExtra = idx => renderAround(idx);
+}
 
-async function renderPdfPage(i){            // i = 0-based
+async function renderPdfPage(i){            // i = 0-based reader index
   if(!pdfDoc || pdfRendered.has(i) || i<0 || i>=totalPages) return;
   pdfRendered.add(i);
-  const el=bookEl.querySelector('.pdfpage[data-page="'+(i+1)+'"]');
+  const el=bookEl.querySelector('.pdfpage[data-idx="'+i+'"]');
   if(!el) return;
   try{
-    const page=await pdfDoc.getPage(i+1);
+    const pdfNum = splitPages ? Math.floor(i/2)+1 : i+1;
+    const half   = splitPages ? (i%2) : -1;   // 0=αριστερό μισό, 1=δεξί
+    const page=await pdfDoc.getPage(pdfNum);
     const vp=page.getViewport({scale:pdfRenderScale});
-    const canvas=document.createElement("canvas");
-    canvas.width=Math.ceil(vp.width); canvas.height=Math.ceil(vp.height);
-    const ctx=canvas.getContext("2d",{alpha:false});
-    ctx.fillStyle="#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
-    await page.render({canvasContext:ctx, viewport:vp}).promise;
-    el.innerHTML=""; el.appendChild(canvas);
+    const fw=Math.ceil(vp.width), fh=Math.ceil(vp.height);
+    const full=document.createElement("canvas"); full.width=fw; full.height=fh;
+    const fctx=full.getContext("2d",{alpha:false}); fctx.fillStyle="#fff"; fctx.fillRect(0,0,fw,fh);
+    await page.render({canvasContext:fctx, viewport:vp}).promise;
     page.cleanup();
+    let canvas=full;
+    if(half>=0){
+      const hw=Math.floor(fw/2);
+      canvas=document.createElement("canvas"); canvas.width=hw; canvas.height=fh;
+      const c=canvas.getContext("2d",{alpha:false}); c.fillStyle="#fff"; c.fillRect(0,0,hw,fh);
+      c.drawImage(full, half*hw,0,hw,fh, 0,0,hw,fh);
+    }
+    el.innerHTML=""; el.appendChild(canvas);
   }catch(e){ pdfRendered.delete(i); }
 }
+
+// Εναλλαγή χωρισμού (μόνο PDF): ξαναχτίζει με διπλάσιες/μισές σελίδες, κρατά τη θέση
+function toggleSplit(){
+  if(!pdfDoc){ toast("Ο «Χωρισμός» ισχύει μόνο σε PDF."); return; }
+  const curIdx=currentIndices()[0]||0;
+  splitPages=!splitPages;
+  const n=pdfDoc.numPages;
+  const count = splitPages ? n*2 : n;
+  curRatio = splitPages ? pdfBaseRatio/2 : pdfBaseRatio;
+  const targetIdx = splitPages ? Math.min(curIdx*2, count-1) : Math.floor(curIdx/2);
+  resetZoom();
+  pdfBuild(count);
+  totalPages=count; $("pageTotal").textContent=count; $("pageInput").max=count;
+  if(book){ book.split=splitPages; dbPut(book); }
+  updateSplitBtn();
+  setTimeout(()=>{ try{ flip.turnToPage?flip.turnToPage(targetIdx):flip.flip(targetIdx); }catch(e){} setCurrent(targetIdx); renderAround(targetIdx); },70);
+  toast(splitPages?"✂️ Χωρισμός: κάθε σελίδα PDF = 2 σελίδες βιβλίου":"Χωρισμός: ανενεργός");
+}
+function updateSplitBtn(){ const b=$("splitBtn"); if(b) b.classList.toggle("primary",splitPages); }
 
 async function renderAround(idx){
   // render current spread + a small look-ahead/behind window
@@ -1032,6 +1067,7 @@ async function openFile(file){
   const name=file.name;
   const ext=(name.split(".").pop()||"").toLowerCase();
   currentFile=file; currentBookId=name+"__"+file.size; book=null;
+  pdfDoc=null; splitPages=false;   // καθάρισε PDF state (το «Χωρισμός» ισχύει μόνο για το τρέχον PDF)
   $("fileName").textContent=name;
   emptyEl.style.display="none";
   try{
@@ -1073,6 +1109,8 @@ function finishOpen(n){
   $("navGrp").style.display="flex";
   $("toolGrp").style.display="flex";
   $("floatNav").classList.add("on");
+  $("splitBtn").style.display = pdfDoc ? "flex" : "none";   // «Χωρισμός» μόνο σε PDF
+  updateSplitBtn();
   $("hint").classList.add("on");
   hideLoading();
   setCurrent(0);
@@ -1206,6 +1244,7 @@ $("pageMode").onclick=function(){
   rebuildFlip();
   toast(forceSingle?"📄 Μονή σελίδα":"📖 Διπλή σελίδα (βιβλίο)");
 };
+$("splitBtn").onclick=toggleSplit;
 // Restore the last-used page mode as the default for new books
 try{ forceSingle = localStorage.getItem("biblio_pagemode")==="single"; }catch(e){}
 updatePageModeBtn();
@@ -1298,10 +1337,10 @@ function currentIndices(){
 async function currentPageText(){
   const parts=[];
   for(const i of currentIndices()){
-    const el=bookEl.querySelector('.pdfpage[data-page="'+(i+1)+'"]');
+    const el=bookEl.querySelector('.pdfpage[data-idx="'+i+'"]');
     if(el && pdfDoc){                       // PDF -> extract via pdf.js
       try{
-        const page=await pdfDoc.getPage(i+1);
+        const page=await pdfDoc.getPage(splitPages?Math.floor(i/2)+1:i+1);
         const tc=await page.getTextContent();
         let last=null, line="";
         tc.items.forEach(it=>{
@@ -1855,6 +1894,12 @@ async function afterOpen(){
   setPageTheme(rec.theme||"day", true);
   if(rec.pageMode==null) rec.pageMode = forceSingle?"single":"double";  // remember for new books
   try{ localStorage.setItem("biblio_lastbook", currentBookId); }catch(e){}   // για αυτόματο άνοιγμα στην επόμενη εκκίνηση
+  // restore per-book PDF split
+  if(pdfDoc && rec.split && !splitPages){
+    splitPages=true; curRatio=pdfBaseRatio/2;
+    const cnt=pdfDoc.numPages*2;
+    pdfBuild(cnt); totalPages=cnt; $("pageTotal").textContent=cnt; $("pageInput").max=cnt; updateSplitBtn();
+  }
   await dbPut(rec);
   // reopen at the bookmark (if one was set), otherwise at the last read page
   const atBookmark = (rec.bookmarkResume!=null && (rec.bookmarks||[]).includes(rec.bookmarkResume));
