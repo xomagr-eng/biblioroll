@@ -1454,8 +1454,9 @@ window.addEventListener("orientationchange",()=>setTimeout(refit,300));
 
 /* ================= Music player ================= */
 const audio=$("audio");
-let tracks=[];        // {name, url, isStream}
+let tracks=[];        // {name, url, isStream, blob?}
 let curTrack=-1;
+let currentPlaylistId=null;   // id αποθηκευμένης λίστας που παίζει (null = ad-hoc/stream)
 
 // Ελληνικοί σταθμοί ανά είδος — ΟΛΟΙ https (ελεγμένοι) ώστε να παίζουν και σε https host (tiiny.host) χωρίς mixed-content block.
 const PRESETS=[
@@ -1606,19 +1607,28 @@ function playIndex(i){
   curTrack=i;
   audio.src=tracks[i].url;
   audio.play().catch(e=>toast("Αδυναμία αναπαραγωγής: "+(e.message||e)));
-  renderPlaylist(); showNow(); setMediaSession(tracks[i]);
+  renderPlaylist(); showNow(); setMediaSession(tracks[i]); saveNowPlaying();
 }
 function playStream(url,label){
   if(!url) return;
   const existing=tracks.findIndex(t=>t.url===url);
   if(existing>=0){ playIndex(existing); return; }
+  currentPlaylistId=null;
   tracks.push({name:label||url.replace(/^https?:\/\//,"").slice(0,40),url,isStream:true});
   playIndex(tracks.length-1);
 }
 function playFromLocal(files){
   [...files].forEach(f=> tracks.push({name:f.name.replace(/\.[^.]+$/,""), url:URL.createObjectURL(f), isStream:false, blob:f}));
   renderPlaylist(); updateSaveRow();
+  persistSession();   // κράτα την τρέχουσα επιλογή ώστε να συνεχίζει μετά το κλείσιμο
   if(curTrack<0) playIndex(tracks.length-files.length);
+}
+// αυτόματη αποθήκευση της τρέχουσας επιλογής (ώστε να γίνεται resume ακόμη κι αν δεν την «Αποθήκευσες»)
+function persistSession(){
+  const local=tracks.filter(t=>!t.isStream && t.blob);
+  if(!local.length) return;
+  currentPlaylistId="__session";
+  plPut({ id:"__session", name:"(τελευταία επιλογή)", createdAt:Date.now(), tracks: local.map(t=>({name:t.name, blob:t.blob})) });
 }
 function updateSaveRow(){ $("savePlRow").style.display = tracks.some(t=>!t.isStream) ? "flex" : "none"; }
 
@@ -1664,7 +1674,8 @@ async function savePlaylist(){
   toast("💾 Αποθηκεύτηκε η λίστα «"+name+"» ("+local.length+" τραγούδια)");
 }
 async function renderSavedPlaylists(){
-  const lists=await plAll();
+  let lists=await plAll();
+  lists=lists.filter(pl=>pl.id!=="__session");   // κρύψε την εσωτερική «τελευταία επιλογή»
   lists.sort((a,b)=>b.createdAt-a.createdAt);
   $("savedWrap").style.display = lists.length ? "block":"none";
   const ul=$("savedLists"); ul.innerHTML="";
@@ -1676,15 +1687,54 @@ async function renderSavedPlaylists(){
     ul.appendChild(li);
   });
 }
-async function loadPlaylist(id){
-  const pl=await plGet(id); if(!pl) return;
+async function loadPlaylist(id, opts){
+  opts=opts||{};
+  const pl=await plGet(id); if(!pl) return false;
   // free old local object URLs
   tracks.forEach(t=>{ if(!t.isStream && t.url) try{URL.revokeObjectURL(t.url);}catch(e){} });
   tracks = pl.tracks.map(t=>({name:t.name, url:URL.createObjectURL(t.blob), isStream:false, blob:t.blob}));
-  curTrack=-1;
+  currentPlaylistId=id; curTrack=-1;
   renderPlaylist(); updateSaveRow();
-  playIndex(0);
-  toast("▶ Λίστα «"+pl.name+"» ("+pl.tracks.length+" τραγούδια)");
+  const idx=Math.max(0, Math.min(opts.index!=null?opts.index:0, tracks.length-1));
+  if(opts.autoplay===false){
+    // set up without playing (resume): seek to saved time on load
+    curTrack=idx; audio.src=tracks[idx].url;
+    if(opts.time){ audio.addEventListener("loadedmetadata",()=>{ try{audio.currentTime=opts.time;}catch(e){} },{once:true}); }
+    renderPlaylist(); showNow(); setMediaSession(tracks[idx]);
+  } else {
+    playIndex(idx);
+    if(opts.time){ audio.addEventListener("loadedmetadata",()=>{ try{audio.currentTime=opts.time;}catch(e){} },{once:true}); }
+  }
+  if(!opts.silent) toast("▶ Λίστα «"+pl.name+"» ("+pl.tracks.length+" τραγούδια)");
+  return true;
+}
+
+/* ---- Θυμάται πού σταμάτησες (λίστα + τραγούδι + σημείο) ---- */
+function saveNowPlaying(){
+  if(curTrack<0 || !tracks[curTrack]){ return; }
+  const t=tracks[curTrack];
+  const st={ plId:currentPlaylistId, idx:curTrack, name:t.name, isStream:!!t.isStream,
+             url:t.isStream?t.url:null, time:t.isStream?0:(audio.currentTime||0), playing:!audio.paused };
+  try{ localStorage.setItem("biblio_now", JSON.stringify(st)); }catch(e){}
+}
+async function restoreNowPlaying(){
+  let st; try{ st=JSON.parse(localStorage.getItem("biblio_now")||"null"); }catch(e){}
+  if(!st) return;
+  try{
+    if(st.plId){
+      const ok=await loadPlaylist(st.plId, {index:st.idx, time:st.time, autoplay:false, silent:true});
+      if(!ok) return;
+    } else if(st.isStream && st.url){
+      currentPlaylistId=null;
+      tracks.push({name:st.name, url:st.url, isStream:true});
+      curTrack=tracks.length-1; audio.src=st.url;
+      renderPlaylist(); showNow(); setMediaSession(tracks[curTrack]);
+    } else {
+      return; // ad-hoc device selection: τα αρχεία δεν διατηρούνται
+    }
+    // αν έπαιζε όταν έκλεισε, δοκίμασε να συνεχίσει (μπορεί να μπλοκάρει το autoplay → μένει έτοιμο στο ▶)
+    if(st.playing){ setTimeout(()=>{ audio.play().catch(()=>{}); }, 400); }
+  }catch(e){}
 }
 
 $("musicBtn").onclick=()=>{ const on=$("musicPanel").classList.toggle("on"); if(on){ renderSavedPlaylists(); updateSaveRow(); } };
@@ -1695,6 +1745,7 @@ $("audioFiles").addEventListener("change",e=>{ playFromLocal(e.target.files); e.
 $("savePl").onclick=savePlaylist;
 $("plName").addEventListener("keydown",e=>{ if(e.key==="Enter") savePlaylist(); });
 renderSavedPlaylists();
+restoreNowPlaying();   // συνέχισε από εκεί που σταμάτησες
 $("mPlay").onclick=()=>{ if(audio.paused){ if(!audio.src&&tracks.length) playIndex(0); else audio.play(); } else audio.pause(); };
 
 /* ---- shuffle & repeat ---- */
@@ -1720,8 +1771,11 @@ $("mNext").onclick=()=>playIndex(nextIndex(1));
 $("mPrev").onclick=()=>playIndex(nextIndex(-1));
 $("mVol").addEventListener("input",e=>{ audio.volume=parseFloat(e.target.value); });
 audio.volume=0.8;
-audio.addEventListener("play",()=>{ $("mPlay").textContent="⏸"; if("mediaSession" in navigator) navigator.mediaSession.playbackState="playing"; });
-audio.addEventListener("pause",()=>{ $("mPlay").textContent="▶"; if("mediaSession" in navigator) navigator.mediaSession.playbackState="paused"; });
+audio.addEventListener("play",()=>{ $("mPlay").textContent="⏸"; if("mediaSession" in navigator) navigator.mediaSession.playbackState="playing"; saveNowPlaying(); });
+audio.addEventListener("pause",()=>{ $("mPlay").textContent="▶"; if("mediaSession" in navigator) navigator.mediaSession.playbackState="paused"; saveNowPlaying(); });
+let _lastNowSave=0;
+audio.addEventListener("timeupdate",()=>{ const n=Date.now(); if(n-_lastNowSave>4000){ _lastNowSave=n; saveNowPlaying(); } });
+window.addEventListener("beforeunload",()=>saveNowPlaying());
 audio.addEventListener("ended",()=>{
   if(tracks[curTrack]?.isStream) return;               // στα streams δεν τελειώνει
   if(repeatMode==="one"){ playIndex(curTrack); return; } // επανάληψη ίδιου
