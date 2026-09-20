@@ -1798,7 +1798,12 @@ function updateDuration(){
 }
 audio.addEventListener("loadedmetadata",updateDuration);
 audio.addEventListener("durationchange",updateDuration);
-audio.addEventListener("timeupdate",()=>{ if(!seeking && isFinite(audio.duration)){ $("seek").value=audio.currentTime; $("curTime").textContent=fmtTime(audio.currentTime); } });
+audio.addEventListener("timeupdate",()=>{
+  if(!seeking && isFinite(audio.duration)){ $("seek").value=audio.currentTime; $("curTime").textContent=fmtTime(audio.currentTime); }
+  if("mediaSession" in navigator && navigator.mediaSession.setPositionState && isFinite(audio.duration)){
+    try{ navigator.mediaSession.setPositionState({duration:audio.duration, position:Math.min(audio.currentTime,audio.duration), playbackRate:audio.playbackRate||1}); }catch(e){}
+  }
+});
 $("seek").addEventListener("input",e=>{ seeking=true; $("curTime").textContent=fmtTime(parseFloat(e.target.value)); });
 $("seek").addEventListener("change",e=>{ if(isFinite(audio.duration)){ try{ audio.currentTime=parseFloat(e.target.value); }catch(_){} } seeking=false; saveNowPlaying(); });
 audio.addEventListener("ended",()=>{
@@ -1849,6 +1854,7 @@ async function afterOpen(){
   bookmarks=rec.bookmarks||[]; annos=rec.annos||{};
   setPageTheme(rec.theme||"day", true);
   if(rec.pageMode==null) rec.pageMode = forceSingle?"single":"double";  // remember for new books
+  try{ localStorage.setItem("biblio_lastbook", currentBookId); }catch(e){}   // για αυτόματο άνοιγμα στην επόμενη εκκίνηση
   await dbPut(rec);
   // reopen at the bookmark (if one was set), otherwise at the last read page
   const atBookmark = (rec.bookmarkResume!=null && (rec.bookmarks||[]).includes(rec.bookmarkResume));
@@ -1876,6 +1882,18 @@ function onPageChange(idx){
   updateRibbon();
   if(book){ book.lastPage=idx; scheduleSave(); }
 }
+
+// Στην εκκίνηση (cold start), ξανάνοιξε αυτόματα το τελευταίο βιβλίο στη θέση του
+async function autoReopenLastBook(){
+  if(currentFile) return;                 // ήδη ανοιχτό (δεν έκλεισε πραγματικά)
+  let id; try{ id=localStorage.getItem("biblio_lastbook"); }catch(e){}
+  if(!id) return;
+  const rec=await dbGet(id);
+  if(rec && rec.blob){
+    try{ openFile(new File([rec.blob], rec.name, {type:rec.blob.type||""})); }catch(e){}
+  }
+}
+window.addEventListener("load",()=>setTimeout(autoReopenLastBook,300));
 
 async function makeCover(){
   try{
