@@ -1,5 +1,5 @@
 /* ΒιβλιοRoll — Service Worker (offline cache) */
-const CACHE = "biblioroll-v9";
+const CACHE = "biblioroll-v10";
 const ASSETS = [
   "./",
   "./index.html",

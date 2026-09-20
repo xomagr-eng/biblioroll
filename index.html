@@ -28,6 +28,8 @@
 <script src="vendor/jszip.min.js"></script>
 <!-- html2canvas — για screenshot -->
 <script src="vendor/html2canvas.min.js"></script>
+<!-- Tesseract.js — OCR σαρωμένων σελίδων (απαιτεί σύνδεση· φορτώνεται από CDN) -->
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
 <style>
   :root{
@@ -1334,22 +1336,42 @@ function currentIndices(){
   let idx=0; try{ idx=flip?flip.getCurrentPageIndex():0; }catch(e){}
   return [idx, idx+1].filter(i=>i>=0 && i<totalPages);
 }
+// OCR σαρωμένης σελίδας (εικόνα) — Tesseract.js, ελληνικά+αγγλικά. Απαιτεί σύνδεση.
+let _ocrWorker=null;
+async function ocrCanvas(canvas){
+  if(typeof Tesseract==="undefined" || !canvas) return "";
+  try{
+    toast("🔎 Αναγνώριση κειμένου (OCR)… περίμενε λίγο");
+    if(!_ocrWorker) _ocrWorker = await Tesseract.createWorker("ell+eng");
+    const { data:{ text } } = await _ocrWorker.recognize(canvas);
+    return (text||"").trim();
+  }catch(e){ return ""; }
+}
 async function currentPageText(){
   const parts=[];
   for(const i of currentIndices()){
     const el=bookEl.querySelector('.pdfpage[data-idx="'+i+'"]');
     if(el && pdfDoc){                       // PDF -> extract via pdf.js
+      let pageText="";
       try{
         const page=await pdfDoc.getPage(splitPages?Math.floor(i/2)+1:i+1);
         const tc=await page.getTextContent();
-        let last=null, line="";
+        let last=null, line="", lines=[];
         tc.items.forEach(it=>{
           const y=it.transform[5];
-          if(last!==null && Math.abs(y-last)>3){ parts.push(line.trim()); line=""; }
+          if(last!==null && Math.abs(y-last)>3){ lines.push(line.trim()); line=""; }
           line+=it.str+(it.hasEOL?"\n":" "); last=y;
         });
-        if(line.trim()) parts.push(line.trim());
+        if(line.trim()) lines.push(line.trim());
+        pageText=lines.join("\n");
       }catch(e){}
+      // σαρωμένη σελίδα (χωρίς κείμενο) -> OCR στην εικόνα του canvas
+      if(pageText.replace(/\s/g,"").length < 15){
+        const cv=el.querySelector("canvas");
+        const o=await ocrCanvas(cv);
+        if(o) pageText=o;
+      }
+      if(pageText) parts.push(pageText);
     } else {                                // Word/Excel/EPUB page
       const dp=bookEl.querySelectorAll('.docpage');
       if(dp[i]) parts.push(dp[i].innerText.trim());
@@ -2102,7 +2124,17 @@ $("ttsStop").onclick=()=>{ speechSynthesis.cancel(); ttsState="idle"; $("ttsPlay
 /* persist annotations from the annotation toolbar */
 $("annoDone").addEventListener("click",()=>saveCurrentAnno());
 $("annoClear").addEventListener("click",()=>{ setTimeout(saveCurrentAnno,20); });
-window.addEventListener("beforeunload",()=>{ saveCurrentAnno(); if(book) dbPut(book); });
+
+/* Αποθήκευση ΚΑΘΕ κατάστασης όταν η εφαρμογή πάει στο παρασκήνιο/κλείνει.
+   Στα κινητά το beforeunload ΔΕΝ είναι αξιόπιστο — το visibilitychange/pagehide είναι. */
+function flushState(){
+  try{ saveCurrentAnno(); }catch(e){}
+  try{ if(typeof saveNowPlaying==="function") saveNowPlaying(); }catch(e){}
+  if(book){ try{ clearTimeout(saveT); dbPut(book); }catch(e){} }
+}
+document.addEventListener("visibilitychange",()=>{ if(document.hidden) flushState(); });
+window.addEventListener("pagehide", flushState);
+window.addEventListener("beforeunload", flushState);
 
 /* ================= PWA: install + offline service worker ================= */
 // Register the service worker (works on https or localhost; silently skipped on file://)
