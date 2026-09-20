@@ -260,6 +260,10 @@
   .mbtn:active{transform:scale(.94)}
   .vol{display:flex;align-items:center;gap:8px;margin-top:10px}
   .vol input[type=range]{flex:1;accent-color:var(--accent)}
+  .seekrow{display:flex;align-items:center;gap:8px;margin-top:10px}
+  .seekrow input[type=range]{flex:1;accent-color:var(--accent);height:4px;cursor:pointer}
+  .seekrow .tnum{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:34px;text-align:center}
+  .seekrow.stream input{opacity:.4;pointer-events:none}
   .cst{display:inline-flex;align-items:center;gap:5px;background:var(--panel);border:1px solid var(--line);border-radius:99px;padding:4px 6px 4px 11px;font-size:12px}
   .cst .rm{cursor:pointer;color:var(--muted);font-weight:800;padding:0 4px;border-radius:50%}
   .cst .rm:hover{color:#fff;background:var(--accent)}
@@ -523,6 +527,11 @@
   <div class="msec" id="nowBox" style="display:none">
     <div class="nowplaying" id="nowTitle">—</div>
     <div class="nowsub" id="nowSub"></div>
+    <div class="seekrow" id="seekRow">
+      <span class="tnum" id="curTime">0:00</span>
+      <input id="seek" type="range" min="0" max="100" value="0" step="0.1" />
+      <span class="tnum" id="durTime">0:00</span>
+    </div>
     <div class="mctrls">
       <button class="mbtn sm" id="shuffleBtn" title="Τυχαία σειρά">🔀</button>
       <button class="mbtn" id="mPrev" title="Προηγούμενο">⏮</button>
@@ -1600,6 +1609,7 @@ function showNow(){
   if(curTrack>=0){
     $("nowTitle").textContent=tracks[curTrack].name;
     $("nowSub").textContent=tracks[curTrack].isStream?"Διαδικτυακός σταθμός":"Τοπικό αρχείο";
+    if($("seek")){ seeking=false; $("seek").value=0; $("curTime").textContent="0:00"; $("durTime").textContent=tracks[curTrack].isStream?"—":"0:00"; $("seekRow").classList.toggle("stream", !!tracks[curTrack].isStream); }
   }
 }
 function playIndex(i){
@@ -1776,6 +1786,21 @@ audio.addEventListener("pause",()=>{ $("mPlay").textContent="▶"; if("mediaSess
 let _lastNowSave=0;
 audio.addEventListener("timeupdate",()=>{ const n=Date.now(); if(n-_lastNowSave>4000){ _lastNowSave=n; saveNowPlaying(); } });
 window.addEventListener("beforeunload",()=>saveNowPlaying());
+
+/* ---- progress / seek bar ---- */
+function fmtTime(s){ if(!isFinite(s)||s<0) return "0:00"; s=Math.floor(s); const m=Math.floor(s/60); const ss=s%60; return m+":"+(ss<10?"0":"")+ss; }
+let seeking=false;
+function updateDuration(){
+  const d=audio.duration, isLive=!isFinite(d)||isNaN(d);
+  $("seekRow").classList.toggle("stream", isLive);
+  $("durTime").textContent = isLive ? "—" : fmtTime(d);
+  $("seek").max = isLive ? 100 : d;
+}
+audio.addEventListener("loadedmetadata",updateDuration);
+audio.addEventListener("durationchange",updateDuration);
+audio.addEventListener("timeupdate",()=>{ if(!seeking && isFinite(audio.duration)){ $("seek").value=audio.currentTime; $("curTime").textContent=fmtTime(audio.currentTime); } });
+$("seek").addEventListener("input",e=>{ seeking=true; $("curTime").textContent=fmtTime(parseFloat(e.target.value)); });
+$("seek").addEventListener("change",e=>{ if(isFinite(audio.duration)){ try{ audio.currentTime=parseFloat(e.target.value); }catch(_){} } seeking=false; saveNowPlaying(); });
 audio.addEventListener("ended",()=>{
   if(tracks[curTrack]?.isStream) return;               // στα streams δεν τελειώνει
   if(repeatMode==="one"){ playIndex(curTrack); return; } // επανάληψη ίδιου
