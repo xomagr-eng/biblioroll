@@ -529,6 +529,7 @@
       <input class="minput" id="plName" type="text" placeholder="Όνομα λίστας" />
       <button class="btn primary" id="savePl" style="height:36px" title="Αποθήκευση λίστας">💾</button>
     </div>
+    <button class="btn" id="clearSongs" style="width:100%;margin-top:7px;display:none">🗑️ Καθαρισμός όλων</button>
   </div>
 
   <div class="msec" id="savedWrap" style="display:none">
@@ -1742,7 +1743,23 @@ function persistSession(){
   currentPlaylistId="__session";
   plPut({ id:"__session", name:"(τελευταία επιλογή)", createdAt:Date.now(), tracks: local.map(t=>({name:t.name, blob:t.blob})) });
 }
-function updateSaveRow(){ $("savePlRow").style.display = tracks.some(t=>!t.isStream) ? "flex" : "none"; }
+function updateSaveRow(){
+  $("savePlRow").style.display = tracks.some(t=>!t.isStream) ? "flex" : "none";
+  $("clearSongs").style.display = tracks.length ? "block" : "none";
+}
+// Καθαρισμός όλων των τραγουδιών (τρέχουσα λίστα + «τελευταία επιλογή»)
+function clearAllSongs(){
+  if(tracks.length && !confirm("Καθαρισμός όλων των τραγουδιών από τη λίστα;")) return;
+  try{ audio.pause(); }catch(e){}
+  tracks.forEach(t=>{ if(!t.isStream && t.url) try{URL.revokeObjectURL(t.url);}catch(e){} });
+  tracks=[]; curTrack=-1; currentPlaylistId=null;
+  try{ audio.removeAttribute("src"); audio.load(); }catch(e){}
+  renderPlaylist(); updateSaveRow(); showNow();
+  try{ localStorage.removeItem("biblio_now"); }catch(e){}
+  plDel("__session");
+  if("mediaSession" in navigator){ try{ navigator.mediaSession.metadata=null; }catch(e){} }
+  toast("🗑️ Καθαρίστηκαν τα τραγούδια.");
+}
 
 /* ---- MediaSession: lockscreen controls + background playback (mobile) ---- */
 function setMediaSession(t){
@@ -1832,9 +1849,11 @@ function saveNowPlaying(){
 async function restoreNowPlaying(){
   let st; try{ st=JSON.parse(localStorage.getItem("biblio_now")||"null"); }catch(e){}
   if(!st) return;
+  try{ await idb(); }catch(e){}            // σιγουρέψου ότι η DB είναι έτοιμη πριν το plGet
   try{
     if(st.plId){
-      const ok=await loadPlaylist(st.plId, {index:st.idx, time:st.time, autoplay:false, silent:true});
+      let ok=await loadPlaylist(st.plId, {index:st.idx, time:st.time, autoplay:false, silent:true});
+      if(!ok){ await new Promise(r=>setTimeout(r,500)); ok=await loadPlaylist(st.plId, {index:st.idx, time:st.time, autoplay:false, silent:true}); }
       if(!ok) return;
     } else if(st.isStream && st.url){
       currentPlaylistId=null;
@@ -1855,6 +1874,7 @@ $("radioPlay").onclick=()=>playStream($("radioUrl").value.trim());
 $("radioUrl").addEventListener("keydown",e=>{ if(e.key==="Enter") playStream($("radioUrl").value.trim()); });
 $("audioFiles").addEventListener("change",e=>{ playFromLocal(e.target.files); e.target.value=""; });
 $("savePl").onclick=savePlaylist;
+$("clearSongs").onclick=clearAllSongs;
 $("plName").addEventListener("keydown",e=>{ if(e.key==="Enter") savePlaylist(); });
 renderSavedPlaylists();
 restoreNowPlaying();   // συνέχισε από εκεί που σταμάτησες
@@ -1924,16 +1944,21 @@ let currentFile=null, currentBookId=null, book=null;
 let bookmarks=[], annos={}, pageTheme="day", annoPageIdx=null, saveT=null;
 
 /* ---------- IndexedDB ---------- */
-let _db=null;
-function idb(){ return new Promise((res,rej)=>{ if(_db) return res(_db);
-  const rq=indexedDB.open("biblioReader",2);
-  rq.onupgradeneeded=e=>{ const d=e.target.result;
-    if(!d.objectStoreNames.contains("books")) d.createObjectStore("books",{keyPath:"id"});
-    if(!d.objectStoreNames.contains("playlists")) d.createObjectStore("playlists",{keyPath:"id"});
-  };
-  rq.onsuccess=e=>{ _db=e.target.result; res(_db); };
-  rq.onerror=()=>rej(rq.error);
-}); }
+let _db=null, _dbP=null;
+function idb(){
+  if(_db) return Promise.resolve(_db);
+  if(_dbP) return _dbP;                     // ΕΝΑ άνοιγμα — αποφυγή race (πολλαπλά concurrent opens)
+  _dbP=new Promise((res,rej)=>{
+    const rq=indexedDB.open("biblioReader",2);
+    rq.onupgradeneeded=e=>{ const d=e.target.result;
+      if(!d.objectStoreNames.contains("books")) d.createObjectStore("books",{keyPath:"id"});
+      if(!d.objectStoreNames.contains("playlists")) d.createObjectStore("playlists",{keyPath:"id"});
+    };
+    rq.onsuccess=e=>{ _db=e.target.result; res(_db); };
+    rq.onerror=()=>{ _dbP=null; rej(rq.error); };
+  });
+  return _dbP;
+}
 async function dbPut(rec){ try{ const d=await idb(); return new Promise((res,rej)=>{ const t=d.transaction("books","readwrite"); t.objectStore("books").put(rec); t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); }); }catch(e){} }
 async function dbGet(id){ try{ const d=await idb(); return new Promise(res=>{ const r=d.transaction("books").objectStore("books").get(id); r.onsuccess=()=>res(r.result||null); r.onerror=()=>res(null); }); }catch(e){ return null; } }
 async function dbAll(){ try{ const d=await idb(); return new Promise(res=>{ const r=d.transaction("books").objectStore("books").getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>res([]); }); }catch(e){ return []; } }
@@ -2279,6 +2304,9 @@ if("serviceWorker" in navigator){
   window.addEventListener("load",()=>{
     navigator.serviceWorker.register("sw.js").catch(()=>{ /* offline cache not available in this context */ });
   });
+  // Αυτόματη ανανέωση όταν ενεργοποιηθεί νέα έκδοση (ώστε να έρχονται οι ενημερώσεις χωρίς χειροκίνητο κλείσιμο)
+  let _swReloaded=false;
+  navigator.serviceWorker.addEventListener("controllerchange",()=>{ if(_swReloaded) return; _swReloaded=true; location.reload(); });
 }
 // "Add to home screen" prompt (Android/desktop Chrome)
 let deferredPrompt=null;
