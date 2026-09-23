@@ -220,30 +220,15 @@
   body.annotating{ }
 
   /* ---------- Music player ---------- */
-  #musicPanel,#appPanel,#inspPanel{
+  #musicPanel,#appPanel{
     position:absolute;right:0;bottom:0;top:0;width:360px;max-width:90vw;z-index:40;
     background:linear-gradient(180deg,var(--panel),var(--bg2));border-left:1px solid var(--line);
     box-shadow:-8px 0 26px var(--shadow);transform:translateX(102%);transition:transform .25s ease;
     display:flex;flex-direction:column;padding:14px;gap:12px;overflow-y:auto;
   }
-  #musicPanel.on,#appPanel.on,#inspPanel.on{transform:translateX(0)}
-  #musicPanel h3,#appPanel h3,#inspPanel h3{margin:2px 0 4px;font-size:16px;display:flex;align-items:center;gap:8px}
-  #musicPanel h3 .x,#appPanel h3 .x,#inspPanel h3 .x{margin-left:auto;cursor:pointer;color:var(--muted);font-size:20px;line-height:1}
-  .insptabs{display:flex;gap:6px}
-  .insptab{flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--muted);border-radius:9px;padding:8px 4px;font-size:12px;font-weight:700;cursor:pointer}
-  .insptab.active{background:var(--accent);border-color:var(--accent);color:#fff}
-  #inspBody{display:flex;flex-direction:column;gap:10px}
-  .quotecard{background:var(--bg2);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:12px;padding:16px}
-  .quotecard .q{font-size:16px;line-height:1.5;color:var(--txt);font-style:italic}
-  .quotecard .a{margin-top:10px;font-size:12px;color:var(--accent);font-weight:700;text-align:right}
-  .qmore{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:9px;padding:9px;font-size:13px;cursor:pointer;font-weight:600}
-  .qmore:hover{border-color:var(--accent)}
-  .bookitem{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:10px 11px}
-  .bookitem .bt{font-size:14px;font-weight:700;color:var(--txt)}
-  .bookitem .ba{font-size:12px;color:var(--muted);margin-top:1px}
-  .bookitem .bw{font-size:12.5px;color:var(--muted);margin-top:6px;line-height:1.45}
-  .bookitem .bsearch{display:inline-block;margin-top:7px;font-size:12px;color:var(--accent);text-decoration:none;font-weight:700}
-  .inspintro{font-size:12px;color:var(--muted);line-height:1.4}
+  #musicPanel.on,#appPanel.on{transform:translateX(0)}
+  #musicPanel h3,#appPanel h3{margin:2px 0 4px;font-size:16px;display:flex;align-items:center;gap:8px}
+  #musicPanel h3 .x,#appPanel h3 .x{margin-left:auto;cursor:pointer;color:var(--muted);font-size:20px;line-height:1}
   #accentSwatches .swatch{width:30px;height:30px}
   #accentSwatches .swatch.active{outline:2px solid #fff;outline-offset:2px}
   #accentPicker{width:44px;height:32px;border:1px solid var(--line);background:#0e1116;border-radius:8px;cursor:pointer}
@@ -442,7 +427,6 @@
   </div>
   <button class="btn icon" id="musicBtn" title="Μουσική">🎵</button>
   <button class="btn icon" id="appBtn" title="Εμφάνιση (χρώματα & φόντο)">🎨</button>
-  <button class="btn icon" id="inspBtn" title="Έμπνευση: σοφά ρητά & βιβλία">📜</button>
   <button class="btn primary" id="installBtn" title="Εγκατάσταση εφαρμογής" style="display:none">⬇️ Εγκατάσταση</button>
 </div>
 
@@ -603,17 +587,6 @@
   </div>
 
   <button class="btn" id="appReset" style="width:100%">↺ Επαναφορά προεπιλογών</button>
-</div>
-
-<!-- ---------- Inspiration panel (quotes & book lists) ---------- -->
-<div id="inspPanel">
-  <h3>📜 Έμπνευση <span class="x" id="inspClose" title="Κλείσιμο">×</span></h3>
-  <div class="insptabs">
-    <button class="insptab active" data-t="quotes">💬 Ρητά</button>
-    <button class="insptab" data-t="better">🌱 Καλύτερος</button>
-    <button class="insptab" data-t="before">⏳ Πριν πεθάνεις</button>
-  </div>
-  <div id="inspBody"></div>
 </div>
 
 <!-- Bookmark ribbon (shown when current page is bookmarked) -->
@@ -2310,113 +2283,6 @@ $("appReset").onclick=()=>{ applyAccent("#e30613",true); setBgNone(); $("bgDim")
   }catch(e){}
 })();
 
-/* ================= Έμπνευση: σοφά ρητά + λίστες βιβλίων ================= */
-const QUOTES=[
-  ["Η ζωή είναι πραγματικά απλή, αλλά επιμένουμε να την κάνουμε πολύπλοκη.","Κομφούκιος"],
-  ["Γνώρισε τον εαυτό σου.","Σωκράτης"],
-  ["Ό,τι δεν με σκοτώνει με κάνει πιο δυνατό.","Φρίντριχ Νίτσε"],
-  ["Να είσαι εσύ η αλλαγή που θέλεις να δεις στον κόσμο.","Μαχάτμα Γκάντι"],
-  ["Το μόνο που φοβάμαι είναι ο ίδιος ο φόβος.","Φραγκλίνος Ρούζβελτ"],
-  ["Δεν μπορούμε να λύσουμε τα προβλήματα με τον ίδιο τρόπο σκέψης που τα δημιούργησε.","Άλμπερτ Αϊνστάιν"],
-  ["Ο ανεξέταστος βίος δεν είναι άξιος να τον ζει κανείς.","Σωκράτης"],
-  ["Η ευτυχία της ζωής σου εξαρτάται από την ποιότητα των σκέψεών σου.","Μάρκος Αυρήλιος"],
-  ["Όπου κι αν πας, πήγαινε με όλη σου την καρδιά.","Κομφούκιος"],
-  ["Το ταξίδι των χιλίων μιλίων ξεκινά με ένα βήμα.","Λάο Τσε"],
-  ["Μην κρίνεις κάθε μέρα από τη σοδειά που θερίζεις, αλλά από τους σπόρους που φυτεύεις.","Ρόμπερτ Λ. Στίβενσον"],
-  ["Ό,τι κι αν είσαι, να είσαι καλός.","Αβραάμ Λίνκολν"],
-  ["Ο χρόνος σου είναι περιορισμένος, μην τον σπαταλάς ζώντας τη ζωή κάποιου άλλου.","Στιβ Τζομπς"],
-  ["Πέφτεις εφτά φορές, σηκώνεσαι οκτώ.","Ιαπωνική παροιμία"],
-  ["Η ευτυχία δεν είναι κάτι έτοιμο· προέρχεται από τις δικές σου πράξεις.","Δαλάι Λάμα"],
-  ["Ζήσε σαν να πεθαίνεις αύριο. Μάθαινε σαν να ζεις για πάντα.","Μαχάτμα Γκάντι"],
-  ["Το μυστικό της προόδου είναι να ξεκινήσεις.","Μαρκ Τουέιν"],
-  ["Δεν είναι ότι η ζωή είναι μικρή, αλλά ότι χάνουμε πολύ χρόνο.","Σενέκας"],
-  ["Η γνώση μιλάει, αλλά η σοφία ακούει.","Τζίμι Χέντριξ"],
-  ["Ένα βιβλίο είναι ένα όνειρο που κρατάς στα χέρια σου.","Νιλ Γκέιμαν"],
-  ["Όποιος διαβάζει, ζει χίλιες ζωές πριν πεθάνει.","Τζορτζ Ρ.Ρ. Μάρτιν"],
-  ["Το σημαντικό δεν είναι να μη πέφτεις, αλλά να ξανασηκώνεσαι.","Νέλσον Μαντέλα"],
-  ["Κάνε αυτό που μπορείς, με ό,τι έχεις, εκεί που είσαι.","Θίοντορ Ρούζβελτ"],
-  ["Η φαντασία είναι πιο σημαντική από τη γνώση.","Άλμπερτ Αϊνστάιν"],
-  ["Δύο πράγματα είναι άπειρα: το σύμπαν και η ανθρώπινη βλακεία.","Άλμπερτ Αϊνστάιν"],
-  ["Μια ήττα δεν είναι τίποτα άλλο παρά εκπαίδευση, το πρώτο βήμα προς κάτι καλύτερο.","Γουέντελ Φίλιπς"],
-  ["Ο πραγματικός πλούτος είναι να ζεις με λίγα.","Πλάτων"],
-  ["Η υπομονή είναι πικρή, μα ο καρπός της γλυκός.","Αριστοτέλης"]
-];
-const BOOKS_BETTER=[
-  ["Τα εις εαυτόν (Meditations)","Μάρκος Αυρήλιος","Στωικές σκέψεις ενός αυτοκράτορα για την αυτοκυριαρχία, την αρετή και την ηρεμία."],
-  ["Το νόημα της ζωής (Man's Search for Meaning)","Βίκτορ Φρανκλ","Πώς να βρεις σκοπό ακόμη και στα πιο σκληρά — από επιζώντα του Άουσβιτς."],
-  ["Ατομικές συνήθειες (Atomic Habits)","Τζέιμς Κλίαρ","Μικρές καθημερινές αλλαγές που φέρνουν τεράστια αποτελέσματα."],
-  ["Οι 7 συνήθειες των αποτελεσματικών ανθρώπων","Στίβεν Κόβι","Διαχρονικές αρχές προσωπικής & διαπροσωπικής αποτελεσματικότητας."],
-  ["Οι τέσσερις συμφωνίες","Ντον Μιγκέλ Ρουίθ","Τέσσερις απλές αρχές ζωής βασισμένες στην αρχαία σοφία των Τολτέκων."],
-  ["Πώς να αποκτήσετε φίλους & να επηρεάζετε ανθρώπους","Ντέιλ Καρνέγκι","Το κλασικό εγχειρίδιο ανθρώπινων σχέσεων & επικοινωνίας."],
-  ["Ο Προφήτης","Χαλίλ Γκιμπράν","Ποιητικοί στοχασμοί για την αγάπη, τη δουλειά, τη χαρά και τον πόνο."],
-  ["Τάο Τε Τσινγκ","Λάο Τσε","Το θεμέλιο του Ταοϊσμού: απλότητα, ισορροπία, ροή με τη ζωή."],
-  ["Επιστολές σε έναν Στωικό","Σενέκας","Πρακτική σοφία για τον χρόνο, τον φόβο και την καλή ζωή."],
-  ["Ο Αλχημιστής","Πάουλο Κοέλιο","Μια αλληγορία για το να ακολουθείς το προσωπικό σου όνειρο."],
-  ["Συναισθηματική νοημοσύνη","Ντάνιελ Γκόλμαν","Γιατί η διαχείριση των συναισθημάτων μετράει όσο κι ο δείκτης IQ."],
-  ["Ikigai","Χ. Γκαρθία & Φ. Μιράγιες","Το ιαπωνικό μυστικό για μακρά ζωή με νόημα και χαρά."],
-  ["Ο δρόμος με τις λιγότερες διαδρομές","Μ. Σκοτ Πεκ","Πειθαρχία, αγάπη και προσωπική/πνευματική ωρίμανση."],
-  ["Σκέψου αργά & γρήγορα","Ντάνιελ Κάνεμαν","Πώς σκέφτεται ο νους μας — και πώς να αποφεύγεις τις παγίδες του."],
-  ["Ηθικά Νικομάχεια","Αριστοτέλης","Τι είναι η αρετή και η ευδαιμονία — το θεμέλιο της ηθικής φιλοσοφίας."],
-  ["Η δύναμη του τώρα","Έκχαρτ Τόλε","Πώς η επίγνωση της παρούσας στιγμής φέρνει εσωτερική γαλήνη."]
-];
-const BOOKS_BEFORE=[
-  ["Δον Κιχώτης","Μιγκέλ ντε Θερβάντες","Το πρώτο σύγχρονο μυθιστόρημα — ιδεαλισμός κόντρα στην πραγματικότητα."],
-  ["Έγκλημα και Τιμωρία","Φιοντόρ Ντοστογιέφσκι","Ενοχή, ηθική και λύτρωση στην ψυχή ενός δολοφόνου."],
-  ["Οι Αδελφοί Καραμάζοφ","Φ. Ντοστογιέφσκι","Πίστη, ελευθερία και ανθρώπινη φύση — αριστούργημα."],
-  ["Πόλεμος και Ειρήνη","Λέων Τολστόι","Έρωτας, πόλεμος και μοίρα στη ρωσική κοινωνία."],
-  ["Άννα Καρένινα","Λέων Τολστόι","Πάθος, ηθική και κοινωνικές συμβάσεις."],
-  ["Εκατό χρόνια μοναξιά","Γκ. Γκ. Μάρκες","Μαγικός ρεαλισμός — η σάγκα της οικογένειας Μπουενδία."],
-  ["1984","Τζορτζ Όργουελ","Ολοκληρωτισμός, παρακολούθηση και ελευθερία της σκέψης."],
-  ["Θαυμαστός καινούριος κόσμος","Άλντους Χάξλεϊ","Δυστοπία ευτυχίας-κατά-παραγγελία και χαμένης ανθρωπιάς."],
-  ["Ο Μικρός Πρίγκιπας","Αντουάν ντε Σαιντ-Εξιπερί","Τρυφερή αλληγορία για την αγάπη, την απώλεια και το ουσιώδες."],
-  ["Ο Άρχοντας των Δαχτυλιδιών","Τζ. Ρ. Ρ. Τόλκιν","Το επικό έπος της φιλίας και του θάρρους."],
-  ["Οι Άθλιοι","Βίκτωρ Ουγκώ","Δικαιοσύνη, έλεος και λύτρωση στη Γαλλία του 19ου αι."],
-  ["Ο Κόμης Μοντεχρήστος","Αλέξανδρος Δουμάς","Αδικία, εκδίκηση και συγχώρεση — αριστούργημα περιπέτειας."],
-  ["Περηφάνια και Προκατάληψη","Τζέιν Όστεν","Έρωτας και κοινωνία με πνεύμα και ειρωνεία."],
-  ["Ο Ηλίθιος / Ουλίσσης / κ.ά.","—","Δες επίσης Τζόις «Οδυσσέας», Μέλβιλ «Μόμπι Ντικ»."],
-  ["Οδύσσεια","Όμηρος","Το αρχέτυπο ταξίδι της επιστροφής — θεμέλιο της λογοτεχνίας."],
-  ["Ο Ξένος","Αλμπέρ Καμύ","Ο παραλογισμός της ύπαρξης σε ένα αδιάφορο σύμπαν."],
-  ["Η Δίκη","Φραντς Κάφκα","Εφιαλτική γραφειοκρατία και ανθρώπινη αγωνία."],
-  ["Ο Μαιτρ και η Μαργαρίτα","Μ. Μπουλγκάκοφ","Σατιρική, μαγική ιστορία με τον Διάβολο στη Μόσχα."],
-  ["Βίος και Πολιτεία του Αλέξη Ζορμπά","Νίκος Καζαντζάκης","Ελευθερία, ζωή και το ελληνικό πνεύμα."],
-  ["Ο τελευταίος πειρασμός","Νίκος Καζαντζάκης","Βαθιά πνευματική αναζήτηση για πίστη και ανθρώπινη φύση."],
-  ["Το Αμάρτημα της μητρός μου","Γ. Βιζυηνός","Κορυφαία ελληνική νουβέλα ψυχογραφίας."],
-  ["Φόνισσα","Αλέξανδρος Παπαδιαμάντης","Σκοτεινό αριστούργημα του ελληνικού νατουραλισμού."],
-  ["Το Κοράκι & άλλες ιστορίες","Έντγκαρ Άλαν Πόε","Ο μάστορας του μυστηρίου και του τρόμου."],
-  ["Ο γερο-άνθρωπος και η θάλασσα","Έρνεστ Χέμινγουεϊ","Θάρρος και αξιοπρέπεια στη μοναχική πάλη."]
-];
-function bookHTML(b){
-  const q=encodeURIComponent(b[0]+" "+b[1]+" βιβλίο");
-  return '<div class="bookitem"><div class="bt">'+escapeHtml(b[0])+'</div><div class="ba">'+escapeHtml(b[1])+'</div>'+
-    '<div class="bw">'+escapeHtml(b[2])+'</div>'+
-    '<a class="bsearch" href="https://www.google.com/search?q='+q+'" target="_blank" rel="noopener">🔍 Βρες το βιβλίο</a></div>';
-}
-let _lastQ=-1;
-function randomQuote(){ let i; do{ i=Math.floor(Math.random()*QUOTES.length); }while(i===_lastQ && QUOTES.length>1); _lastQ=i; return QUOTES[i]; }
-function renderInsp(tab){
-  const body=$("inspBody"); body.innerHTML="";
-  document.querySelectorAll("#inspPanel .insptab").forEach(b=>b.classList.toggle("active",b.dataset.t===tab));
-  if(tab==="quotes"){
-    const q=randomQuote();
-    const card=document.createElement("div"); card.className="quotecard";
-    card.innerHTML='<div class="q">“'+escapeHtml(q[0])+'”</div><div class="a">— '+escapeHtml(q[1])+'</div>';
-    body.appendChild(card);
-    const more=document.createElement("button"); more.className="qmore"; more.textContent="🔄 Άλλο ρητό";
-    more.onclick=()=>renderInsp("quotes"); body.appendChild(more);
-    const all=document.createElement("div"); all.className="inspintro"; all.style.marginTop="6px";
-    all.innerHTML="Όλα τα ρητά ("+QUOTES.length+"):"; body.appendChild(all);
-    QUOTES.forEach(qq=>{ const d=document.createElement("div"); d.className="bookitem"; d.innerHTML='<div class="bw" style="margin:0">“'+escapeHtml(qq[0])+'” — <b style="color:var(--muted)">'+escapeHtml(qq[1])+'</b></div>'; body.appendChild(d); });
-  } else {
-    const list = tab==="better"?BOOKS_BETTER:BOOKS_BEFORE;
-    const intro=document.createElement("div"); intro.className="inspintro";
-    intro.textContent = tab==="better" ? "Βιβλία που σε κάνουν καλύτερο άνθρωπο ("+list.length+"):" : "Βιβλία που πρέπει να διαβάσεις πριν πεθάνεις ("+list.length+"):";
-    body.appendChild(intro);
-    list.forEach(b=>{ const w=document.createElement("div"); w.innerHTML=bookHTML(b); body.appendChild(w.firstChild); });
-  }
-}
-$("inspBtn").onclick=()=>{ const on=$("inspPanel").classList.toggle("on"); $("musicPanel").classList.remove("on"); $("appPanel").classList.remove("on"); if(on) renderInsp("quotes"); };
-$("inspClose").onclick=()=>$("inspPanel").classList.remove("on");
-document.querySelectorAll("#inspPanel .insptab").forEach(b=>b.onclick=()=>renderInsp(b.dataset.t));
 
 /* persist annotations from the annotation toolbar */
 $("annoDone").addEventListener("click",()=>saveCurrentAnno());
