@@ -1499,7 +1499,7 @@ $("immExit").onclick=()=>toggleImmersive(false);
 function norm(s){ return (s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,""); }
 let searchIndex=null, searchIndexKey="", matchList=[], matchPos=-1;
 async function buildSearchIndex(){
-  const key = currentBookId + "|" + (splitPages?"s":"n") + "|" + totalPages;
+  const key = (splitPages?"s":"n") + "|" + totalPages;  // το finishOpen μηδενίζει το index σε κάθε νέο βιβλίο
   if(searchIndex && searchIndexKey===key) return searchIndex;
   const arr=new Array(totalPages).fill("");
   if(pdfDoc){
