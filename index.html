@@ -701,6 +701,7 @@ let pdfDoc=null, pdfRenderScale=1;
 const pdfRendered=new Set();
 let curRatio=0.707;    // page width/height of current document
 let forceSingle=false; // εμφάνιση μονής σελίδας αντί για δισέλιδο
+let pageModeManual=false; // true όταν ο χρήστης διαλέξει μόνος του μονή/διπλή (αλλιώς αυτόματο βάσει προσανατολισμού)
 let splitPages=false;  // χωρισμός κάθε σελίδας PDF σε 2 (για σαρωμένα δισέλιδα)
 let pdfBaseRatio=0.707;// αναλογία πλήρους σελίδας PDF
 
@@ -740,7 +741,7 @@ function computeBookSize(ratio){
   // and clamp so StPageFlip never receives a non-positive width/height.
   const availH = Math.max(280, (stage.clientHeight||window.innerHeight||600) - 40);
   const availW = Math.max(220, (stage.clientWidth ||window.innerWidth ||400) - 30);
-  const portrait = forceSingle || (window.innerWidth||400) < 820;   // single page: forced ή σε στενές οθόνες
+  const portrait = forceSingle;   // μονή/διπλή: την ελέγχει το autoOrient (προσανατολισμός) ή ο χρήστης
   let h = availH;
   let w = h*ratio;
   const spreadW = portrait ? w : w*2;
@@ -1321,8 +1322,25 @@ function updatePageModeBtn(){
   $("pageMode").textContent=forceSingle?"📄":"📖";
   $("pageMode").classList.toggle("primary",forceSingle);
 }
+// Πότε συμφέρει διπλή σελίδα (δισέλιδο): σε οριζόντια οθόνη κινητού/τάμπλετ ή σε ευρεία οθόνη.
+function viewportWantsDouble(){
+  const w=window.innerWidth||0, h=window.innerHeight||0;
+  const landscape = w > h;
+  return (landscape && w>=640) || w>=900;
+}
+// Αυτόματη εναλλαγή μονή↔διπλή όταν γυρίζει η συσκευή — «μεγαλώνει» η οθόνη οριζόντια, όπως σε πολλές εφαρμογές.
+function autoOrient(){
+  if(pageModeManual || !flip) return;        // αν διάλεξε ο χρήστης χειροκίνητα, το σεβόμαστε
+  const wantSingle = !viewportWantsDouble();
+  if(wantSingle!==forceSingle){
+    forceSingle=wantSingle;
+    updatePageModeBtn();
+    rebuildFlip();
+  }
+}
 $("pageMode").onclick=function(){
   forceSingle=!forceSingle;
+  pageModeManual=true;                        // ρητή επιλογή χρήστη — απενεργοποιεί το αυτόματο για τη συνεδρία
   updatePageModeBtn();
   try{ localStorage.setItem("biblio_pagemode", forceSingle?"single":"double"); }catch(e){}
   if(book){ book.pageMode=forceSingle?"single":"double"; dbPut(book); }
@@ -1410,7 +1428,7 @@ window.addEventListener("drop",e=>{ e.preventDefault(); dropEl.classList.remove(
 
 // resize -> recompute book box + refit
 let rz;
-function refit(){ if(!flip) return; applyBookSize(); try{ flip.update(); }catch(e){} sizeAnno(); }
+function refit(){ if(!flip) return; autoOrient(); applyBookSize(); try{ flip.update(); }catch(e){} sizeAnno(); }
 window.addEventListener("resize",()=>{ clearTimeout(rz); rz=setTimeout(refit,180); });
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden) setTimeout(refit,120); });
 
@@ -2112,9 +2130,10 @@ async function afterOpen(){
   const atBookmark = (rec.bookmarkResume!=null && (rec.bookmarks||[]).includes(rec.bookmarkResume));
   const target = atBookmark ? rec.bookmarkResume : (rec.lastPage||0);
   const resumeToast = ()=>{ if(atBookmark) toast("🔖 Άνοιγμα στον σελιδοδείκτη — σελ. "+(target+1)); else if(target>0) toast("↩️ Συνέχεια από σελ. "+(target+1)); };
-  const wantSingle = rec.pageMode==="single";
+  // Αυτόματο (default): η μονή/διπλή ακολουθεί τον προσανατολισμό. Χειροκίνητο: σεβόμαστε την αποθηκευμένη επιλογή.
+  const wantSingle = pageModeManual ? (rec.pageMode==="single") : !viewportWantsDouble();
   if(wantSingle!==forceSingle){
-    // this book was saved in the other page mode → switch and rebuild (keeps the page)
+    // διαφορετική λειτουργία → αλλαγή & rebuild (κρατά τη σελίδα)
     forceSingle=wantSingle; updatePageModeBtn();
     setTimeout(()=>{ rebuildFlip(target); renderBmk(); resumeToast(); }, 260);
   } else {
