@@ -205,6 +205,27 @@
   }
   #annoBar.on{display:flex}
   #annoBar .atitle{font-weight:700;color:var(--accent);font-size:13px;margin-right:2px}
+  /* search sub-toolbar */
+  #searchBar{
+    display:none;align-items:center;gap:8px;flex:none;
+    padding:7px 12px;background:var(--panel2);border-bottom:1px solid var(--line);
+    position:relative;z-index:29;
+  }
+  #searchBar.on{display:flex}
+  #searchBar .atitle{font-size:15px}
+  #searchInput{flex:1;min-width:0;height:36px;background:#0e1116;border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:0 12px;font-size:14px}
+  #searchCount{font-size:12px;color:var(--muted);min-width:54px;text-align:center;font-variant-numeric:tabular-nums}
+  /* reading progress bar */
+  #progWrap{position:absolute;top:0;left:0;right:0;height:3px;background:transparent;z-index:23;pointer-events:none}
+  #progWrap>i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s ease}
+  /* immersive (distraction-free) reading: hide chrome, tap to reveal */
+  body.immersive #toolbar{display:none}
+  body.immersive #floatNav button{opacity:.14}
+  #immBtn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  #immExit{display:none;position:absolute;top:10px;right:10px;z-index:27;width:42px;height:42px;border-radius:50%;
+    border:1px solid var(--line);background:rgba(27,31,38,.6);color:var(--txt);font-size:18px;cursor:pointer;
+    align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+  #immExit:hover{background:var(--accent);border-color:var(--accent);color:#fff}
   .atool.active{background:var(--accent);border-color:var(--accent);color:#fff}
   .swatches{display:flex;gap:5px}
   .swatch{width:22px;height:22px;border-radius:50%;border:2px solid #0006;cursor:pointer}
@@ -416,7 +437,9 @@
     <button class="btn icon" id="zoomOut" title="Σμίκρυνση">−</button>
     <span id="zoomLbl">100%</span>
     <button class="btn icon" id="zoomIn" title="Μεγέθυνση">+</button>
+    <button class="btn icon" id="searchBtn" title="Αναζήτηση στο βιβλίο">🔎</button>
     <button class="btn icon" id="bmkBtn" title="Σελιδοδείκτης (προσθήκη/αφαίρεση)">🔖</button>
+    <button class="btn icon" id="immBtn" title="Ανάγνωση χωρίς περισπασμούς">👁️</button>
     <button class="btn icon" id="themeBtn" title="Ημέρα / Σέπια / Νύχτα">☀️</button>
     <button class="btn icon" id="ttsBtn" title="Αφήγηση κειμένου">🗣️</button>
     <button class="btn icon" id="copyText" title="Αντιγραφή κειμένου σελίδας">📋</button>
@@ -444,13 +467,29 @@
   <button class="btn" id="annoDone" title="Τέλος">✓ Τέλος</button>
 </div>
 
+<!-- Search sub-toolbar -->
+<div id="searchBar">
+  <span class="atitle">🔎</span>
+  <input id="searchInput" type="text" placeholder="Αναζήτηση στο βιβλίο…" />
+  <span id="searchCount">—</span>
+  <button class="btn icon" id="searchPrev" title="Προηγούμενο">‹</button>
+  <button class="btn icon" id="searchNext" title="Επόμενο">›</button>
+  <button class="btn" id="searchClose" title="Κλείσιμο">✓ Τέλος</button>
+</div>
+
 <div id="main">
+<!-- reading progress bar -->
+<div id="progWrap"><i id="progBar"></i></div>
+
 <div id="stage">
   <div id="zoomWrap"><div id="book"></div></div>
 </div>
 
 <!-- pan overlay (active when zoomed) -->
 <div id="panLayer"></div>
+
+<!-- exit immersive (shown only in distraction-free mode) -->
+<button id="immExit" title="Έξοδος (εμφάνιση χειριστηρίων)">👁️</button>
 
 <!-- floating page navigation (bottom corners, non-intrusive) -->
 <div id="floatNav">
@@ -1159,6 +1198,8 @@ function finishOpen(n){
   hideLoading();
   setCurrent(0);
   zoom=1; applyZoom();
+  searchIndex=null; matchList=[]; matchPos=-1; $("searchBar").classList.remove("on"); if($("searchInput")) $("searchInput").value=""; if($("searchCount")) $("searchCount").textContent="—";
+  updateProgress();
   if(typeof toggleAnno==="function"){ toggleAnno(false); if(typeof clearOverlay==="function") clearOverlay(); }
   clearTimeout(finishOpen._h);
   finishOpen._h=setTimeout(()=>$("hint").classList.remove("on"),6000);
@@ -1433,6 +1474,84 @@ async function copyCurrentText(){
   }
 }
 $("copyText").onclick=copyCurrentText;
+
+/* ================= Reading progress ================= */
+function updateProgress(){
+  const bar=$("progBar"); if(!bar) return;
+  const idx=(currentIndices()[0]||0);
+  const pct = totalPages>0 ? Math.min(100, Math.round((idx+1)/totalPages*100)) : 0;
+  bar.style.width=pct+"%";
+}
+
+/* ================= Immersive (distraction-free) reading ================= */
+function toggleImmersive(on){
+  const want = on!==undefined ? on : !document.body.classList.contains("immersive");
+  document.body.classList.toggle("immersive", want);
+  $("immBtn").classList.toggle("primary", want);
+  $("immExit").style.display = want ? "flex" : "none";
+  setTimeout(refit,80);
+  if(want) toast("👁️ Ανάγνωση χωρίς περισπασμούς — πάτα 👁️ πάνω δεξιά για έξοδο.");
+}
+$("immBtn").onclick=()=>toggleImmersive();
+$("immExit").onclick=()=>toggleImmersive(false);
+
+/* ================= Search in book ================= */
+function norm(s){ return (s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,""); }
+let searchIndex=null, searchIndexKey="", matchList=[], matchPos=-1;
+async function buildSearchIndex(){
+  const key = currentBookId + "|" + (splitPages?"s":"n") + "|" + totalPages;
+  if(searchIndex && searchIndexKey===key) return searchIndex;
+  const arr=new Array(totalPages).fill("");
+  if(pdfDoc){
+    toast("🔎 Ευρετηρίαση βιβλίου…");
+    for(let i=0;i<totalPages;i++){
+      try{
+        const pdfNum = splitPages ? Math.floor(i/2)+1 : i+1;
+        const page=await pdfDoc.getPage(pdfNum);
+        const tc=await page.getTextContent();
+        arr[i]=norm(tc.items.map(it=>it.str).join(" "));
+        page.cleanup();
+      }catch(e){}
+      if(i%8===0) await new Promise(r=>setTimeout(r));
+    }
+  } else {
+    const dp=bookEl.querySelectorAll(".docpage");
+    for(let i=0;i<dp.length;i++) arr[i]=norm(dp[i].innerText||"");
+  }
+  searchIndex=arr; searchIndexKey=key; return arr;
+}
+async function runSearch(q){
+  q=norm(q.trim());
+  if(!q){ matchList=[]; matchPos=-1; $("searchCount").textContent="—"; return; }
+  const idx=await buildSearchIndex();
+  matchList=[]; for(let i=0;i<idx.length;i++){ if(idx[i].includes(q)) matchList.push(i); }
+  if(!matchList.length){
+    $("searchCount").textContent="0";
+    toast(pdfDoc && idx.every(t=>!t) ? "Δεν βρέθηκε κείμενο (ίσως σαρωμένο βιβλίο)." : "Δεν βρέθηκε.");
+    return;
+  }
+  // jump to nearest match from current page
+  const cur=currentIndices()[0]||0;
+  matchPos=matchList.findIndex(i=>i>=cur); if(matchPos<0) matchPos=0;
+  gotoMatch(0);
+}
+function gotoMatch(step){
+  if(!matchList.length) return;
+  matchPos=(matchPos+step+matchList.length)%matchList.length;
+  const idx=matchList[matchPos];
+  $("searchCount").textContent=(matchPos+1)+"/"+matchList.length;
+  try{ flip.flip(idx); }catch(e){ try{flip.turnToPage(idx);}catch(_){}}
+}
+let _searchT;
+$("searchBtn").onclick=()=>{
+  const on=$("searchBar").classList.toggle("on");
+  if(on){ $("searchInput").focus(); } else { matchList=[]; matchPos=-1; }
+};
+$("searchClose").onclick=()=>{ $("searchBar").classList.remove("on"); };
+$("searchInput").addEventListener("input",e=>{ clearTimeout(_searchT); const v=e.target.value; _searchT=setTimeout(()=>runSearch(v),350); });
+$("searchInput").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); if(matchList.length) gotoMatch(1); else runSearch(e.target.value); } });
+$("searchPrev").onclick=()=>gotoMatch(-1);
+$("searchNext").onclick=()=>gotoMatch(1);
 
 /* ================= Screenshot ================= */
 function bgColor(){ return getComputedStyle(document.body).backgroundColor||"#0d0f12"; }
@@ -2013,6 +2132,7 @@ function onPageChange(idx){
   saveCurrentAnno();
   loadAnnosForCurrent();
   updateRibbon();
+  updateProgress();
   if(book){ book.lastPage=idx; scheduleSave(); }
 }
 
